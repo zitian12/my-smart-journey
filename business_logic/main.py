@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import api_router
+from routers import api_router
 
 app = FastAPI(title="My Smart Journey")
 

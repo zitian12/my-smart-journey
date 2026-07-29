@@ -1,18 +1,21 @@
 services:
   backend:
-    build: ./backend
+    build: ./business_logic
     ports:
       - "8000:8000"
     env_file:
-      - ./backend/.env
+      - ./business_logic/.env
     volumes:
-      - ./backend:/app
+      - ./business_logic:/app
+      - ./database:/database
+      - ./integration:/integration
+    working_dir: /app
 
   frontend:
-    build: ./frontend
+    build: ./presentation
     ports:
       - "5173:5173"
     volumes:
-      - ./frontend:/app
+      - ./presentation:/app
     depends_on:
       - backend
