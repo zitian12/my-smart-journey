@@ -3,6 +3,14 @@ import { GoogleLogin, type CredentialResponse } from "@react-oauth/google";
 import { NavLink } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
+const navLinkClass = ({ isActive }: { isActive: boolean }) =>
+  [
+    "rounded-lg px-3 py-2 text-sm font-medium transition-colors no-underline",
+    isActive
+      ? "bg-leaf/10 text-forest"
+      : "text-stone hover:bg-leaf/5 hover:text-forest",
+  ].join(" ");
+
 export function Navbar() {
   const { user, isAuthenticated, isLoading, loginWithGoogle, logout } = useAuth();
   const googleLoginRef = useRef<HTMLDivElement>(null);
@@ -22,16 +30,27 @@ export function Navbar() {
   };
 
   return (
-    <header className="border-b border-leaf/15 bg-white/80 backdrop-blur-md">
+    <header className="sticky top-0 z-50 border-b border-leaf/15 bg-white/80 backdrop-blur-md">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:gap-6 sm:px-6 sm:py-4">
-        <NavLink to="/" className="group flex min-w-0 items-baseline gap-2 no-underline">
-          <span className="font-display text-lg font-semibold tracking-tight text-forest sm:text-xl">
-            My Smart Journey
-          </span>
-          <span className="hidden text-xs font-medium uppercase tracking-wider text-stone sm:inline">
-            Sustainable travel
-          </span>
-        </NavLink>
+        <div className="flex min-w-0 items-center gap-1 sm:gap-2">
+          <NavLink to="/" className="group flex min-w-0 items-baseline gap-2 no-underline">
+            <span className="font-display text-lg font-semibold tracking-tight text-forest sm:text-xl">
+              My Smart Journey
+            </span>
+            <span className="hidden text-xs font-medium uppercase tracking-wider text-stone lg:inline">
+              Sustainable travel
+            </span>
+          </NavLink>
+
+          <nav className="ml-2 flex items-center gap-1 sm:ml-4 sm:gap-2" aria-label="Main navigation">
+            <NavLink to="/" end className={navLinkClass}>
+              Home
+            </NavLink>
+            <NavLink to="/destinations" className={navLinkClass}>
+              Destinations
+            </NavLink>
+          </nav>
+        </div>
 
         <div className="flex shrink-0 items-center gap-2 sm:gap-3">
           {isAuthenticated && user ? (
