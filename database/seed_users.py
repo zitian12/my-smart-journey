@@ -15,27 +15,15 @@ async def main() -> None:
     repo = UserRepository()
     await repo.ensure_indexes()
 
-    users = [
-        User(
-            email="alice@example.com",
-            password="password123",
-            full_name="Alice Tan",
-        ),
-        User(
-            email="bob@example.com",
-            password="password123",
-            full_name="Bob Lim",
-        ),
-        User(
-            email="carol@example.com",
-            password="password123",
-            full_name="Carol Ng",
-        ),
+    emails = [
+        "alice@example.com",
+        "bob@example.com",
+        "carol@example.com",
     ]
 
-    for user in users:
-        user_id = await repo.create_user(user)
-        print(f"Inserted {user.email} -> {user_id}")
+    for email in emails:
+        user_id = await repo.create_user(User(email=email))
+        print(f"Inserted {email} -> {user_id}")
 
 
 if __name__ == "__main__":

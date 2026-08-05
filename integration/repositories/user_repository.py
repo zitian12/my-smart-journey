@@ -42,5 +42,7 @@ class UserRepository:
     def _serialize(document: dict | None) -> dict | None:
         if document is None:
             return None
-        document["_id"] = str(document["_id"])
-        return document
+        return {
+            "id": str(document["_id"]),
+            "email": document["email"],
+        }
