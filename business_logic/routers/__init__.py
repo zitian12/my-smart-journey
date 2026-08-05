@@ -1,7 +1,6 @@
 from fastapi import APIRouter
 
-api_router = APIRouter()
+from routers import test_db
 
-# Register route modules here as they are added, e.g.:
-# from routers import itineraries
-# api_router.include_router(itineraries.router, prefix="/itineraries", tags=["itineraries"])
+api_router = APIRouter()
+api_router.include_router(test_db.router)
