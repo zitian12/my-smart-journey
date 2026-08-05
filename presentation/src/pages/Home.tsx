@@ -1,4 +1,3 @@
-import { Link } from "react-router-dom";
 import { MalaysiaMap } from "../components/MalaysiaMap";
 import { HERO_IMAGE, destinations } from "../data/malaysia";
 
@@ -25,12 +24,12 @@ export function Home() {
             <p className="mt-5 max-w-xl text-lg text-white/90 sm:text-xl">
               Plan Sustainable & Personalized Trips Across Malaysia
             </p>
-            <Link
-              to="/itinerary"
-              className="mt-8 inline-flex items-center justify-center rounded-lg bg-leaf px-7 py-3.5 text-base font-semibold text-white no-underline shadow-lg shadow-ink/20 transition hover:bg-forest focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+            <button
+              type="button"
+              className="mt-8 inline-flex items-center justify-center rounded-lg bg-leaf px-7 py-3.5 text-base font-semibold text-white shadow-lg shadow-ink/20 transition hover:bg-forest focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
             >
               Start Planning
-            </Link>
+            </button>
           </div>
         </div>
       </section>
