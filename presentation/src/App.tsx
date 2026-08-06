@@ -4,6 +4,7 @@ import { Layout } from "./components/Layout";
 import { DashboardPage } from "./pages/DashboardPage";
 import { DestinationsPage } from "./pages/DestinationsPage";
 import { Home } from "./pages/Home";
+import { EcoScorePage } from "./pages/EcoScorePage";
 import { PlanningPage } from "./pages/PlanningPage";
 
 export default function App() {
@@ -18,6 +19,7 @@ export default function App() {
         <Route path="dashboard" element={<DashboardLayout />}>
           <Route index element={<DashboardPage />} />
           <Route path="planning" element={<PlanningPage />} />
+          <Route path="eco-score" element={<EcoScorePage />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

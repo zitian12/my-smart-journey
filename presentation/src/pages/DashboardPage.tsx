@@ -14,7 +14,8 @@ const quickActions = [
     id: "eco-score",
     title: "Eco Score",
     description: "Track the environmental impact of your trips.",
-    ready: false as const,
+    ready: true as const,
+    to: "/dashboard/eco-score",
   },
   {
     id: "my-trips",

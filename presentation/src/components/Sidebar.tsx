@@ -12,7 +12,7 @@ const menuItems: MenuItem[] = [
   { id: "overview", label: "Overview", to: "/dashboard", ready: true },
   { id: "destinations", label: "Destinations", to: "/destinations", ready: true },
   { id: "planning", label: "Planning", to: "/dashboard/planning", ready: true },
-  { id: "eco-score", label: "Eco Score", ready: false },
+  { id: "eco-score", label: "Eco Score", to: "/dashboard/eco-score", ready: true },
   { id: "my-trips", label: "My Trips", ready: false },
   { id: "favourites", label: "Favourites", ready: false },
 ];
