@@ -1,4 +1,4 @@
-"""Seed sample users into MongoDB."""
+"""Seed sample users into MongoDB (for local testing only)."""
 
 import asyncio
 import sys
@@ -15,15 +15,24 @@ async def main() -> None:
     repo = UserRepository()
     await repo.ensure_indexes()
 
-    emails = [
-        "alice@example.com",
-        "bob@example.com",
-        "carol@example.com",
+    users = [
+        User(
+            google_id="google_test_alice",
+            email="alice@example.com",
+            full_name="Alice Tan",
+            profile_picture="https://example.com/alice.jpg",
+        ),
+        User(
+            google_id="google_test_bob",
+            email="bob@example.com",
+            full_name="Bob Lim",
+            profile_picture="https://example.com/bob.jpg",
+        ),
     ]
 
-    for email in emails:
-        user_id = await repo.create_user(User(email=email))
-        print(f"Inserted {email} -> {user_id}")
+    for user in users:
+        user_id = await repo.create_user(user)
+        print(f"Inserted {user.email} -> {user_id}")
 
 
 if __name__ == "__main__":

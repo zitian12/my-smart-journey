@@ -1,3 +1,4 @@
+import logging
 import sys
 from pathlib import Path
 
@@ -9,7 +10,14 @@ if str(_ROOT) not in sys.path:
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from database.connection import verify_connection
+from integration.repositories import UserRepository
 from routers import api_router
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
 
 app = FastAPI(title="My Smart Journey")
 
@@ -22,6 +30,13 @@ app.add_middleware(
 )
 
 app.include_router(api_router)
+
+
+@app.on_event("startup")
+async def startup() -> None:
+    await verify_connection()
+    user_repository = UserRepository()
+    await user_repository.ensure_indexes()
 
 
 @app.get("/")
