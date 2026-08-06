@@ -21,7 +21,8 @@ const quickActions = [
     id: "my-trips",
     title: "My Trips",
     description: "Review and manage saved itineraries.",
-    ready: false as const,
+    ready: true as const,
+    to: "/dashboard/my-trips",
   },
   {
     id: "favourites",
