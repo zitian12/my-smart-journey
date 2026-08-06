@@ -1,32 +1,39 @@
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useComingSoonToast } from "../components/ComingSoonToast";
 
 const quickActions = [
   {
-    id: "ai-planner",
-    title: "AI Planner",
+    id: "planning",
+    title: "Planning",
     description: "Generate a personalized sustainable itinerary.",
+    ready: true as const,
+    to: "/dashboard/planning",
   },
   {
     id: "eco-score",
     title: "Eco Score",
     description: "Track the environmental impact of your trips.",
+    ready: false as const,
   },
   {
     id: "my-trips",
     title: "My Trips",
     description: "Review and manage saved itineraries.",
+    ready: false as const,
   },
   {
     id: "favourites",
     title: "Favourites",
     description: "Keep your favorite destinations in one place.",
+    ready: false as const,
   },
-] as const;
+];
 
 export function DashboardPage() {
   const { user, isAuthenticated } = useAuth();
   const { showComingSoon } = useComingSoonToast();
+  const navigate = useNavigate();
 
   const greetingName = isAuthenticated && user ? user.name.split(" ")[0] : "Traveler";
 
@@ -73,7 +80,13 @@ export function DashboardPage() {
             <button
               key={action.id}
               type="button"
-              onClick={() => showComingSoon(action.title)}
+              onClick={() => {
+                if (action.ready) {
+                  navigate(action.to);
+                  return;
+                }
+                showComingSoon(action.title);
+              }}
               className="rounded-2xl bg-white p-5 text-left ring-1 ring-forest/5 transition hover:-translate-y-0.5 hover:shadow-md"
             >
               <p className="font-semibold text-ink">{action.title}</p>
@@ -81,7 +94,7 @@ export function DashboardPage() {
                 {action.description}
               </p>
               <p className="mt-3 text-xs font-medium uppercase tracking-wider text-leaf">
-                Coming soon
+                {action.ready ? "Open" : "Coming soon"}
               </p>
             </button>
           ))}
