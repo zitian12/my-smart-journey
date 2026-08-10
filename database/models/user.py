@@ -14,5 +14,8 @@ class User(BaseModel):
     email: str
     full_name: str
     profile_picture: str
+    nickname: str = ""
+    bio: str = ""
+    phone: str = ""
     created_at: datetime = Field(default_factory=_utc_now)
     last_login: datetime = Field(default_factory=_utc_now)

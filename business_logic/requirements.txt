@@ -1,6 +1,7 @@
 fastapi
 uvicorn[standard]
 python-dotenv
+python-multipart
 motor
 pydantic
 google-auth

@@ -104,8 +104,12 @@ class AuthService:
             user=UserResponse(
                 id=user["id"],
                 email=user["email"],
-                full_name=user["full_name"] or "",
-                profile_picture=user["profile_picture"] or "",
+                full_name=user.get("full_name") or "",
+                profile_picture=user.get("profile_picture") or "",
+                nickname=user.get("nickname") or "",
+                bio=user.get("bio") or "",
+                phone=user.get("phone") or "",
+                created_at=user.get("created_at"),
             ),
         )
 

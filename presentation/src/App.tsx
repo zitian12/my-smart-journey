@@ -7,6 +7,7 @@ import { Home } from "./pages/Home";
 import { EcoScorePage } from "./pages/EcoScorePage";
 import { MyTripsPage } from "./pages/MyTripsPage";
 import { PlanningPage } from "./pages/PlanningPage";
+import { ProfilePage } from "./pages/ProfilePage";
 
 export default function App() {
   return (
@@ -22,6 +23,7 @@ export default function App() {
           <Route path="planning" element={<PlanningPage />} />
           <Route path="eco-score" element={<EcoScorePage />} />
           <Route path="my-trips" element={<MyTripsPage />} />
+          <Route path="profile" element={<ProfilePage />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

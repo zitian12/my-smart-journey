@@ -14,6 +14,7 @@ const menuItems: MenuItem[] = [
   { id: "planning", label: "Planning", to: "/dashboard/planning", ready: true },
   { id: "eco-score", label: "Eco Score", to: "/dashboard/eco-score", ready: true },
   { id: "my-trips", label: "My Trips", to: "/dashboard/my-trips", ready: true },
+  { id: "profile", label: "Settings", to: "/dashboard/profile", ready: true },
   { id: "favourites", label: "Favourites", ready: false },
 ];
 
@@ -87,7 +88,10 @@ export function Sidebar() {
       <div className="border-t border-leaf/10 p-4">
         {isAuthenticated && user ? (
           <div className="space-y-3">
-            <div className="flex items-center gap-3">
+            <NavLink
+              to="/dashboard/profile"
+              className="flex items-center gap-3 rounded-lg p-1 no-underline transition-colors hover:bg-mist"
+            >
               {user.profile_picture ? (
                 <img
                   src={user.profile_picture}
@@ -104,7 +108,7 @@ export function Sidebar() {
                 <p className="truncate text-sm font-semibold text-forest">{user.name}</p>
                 <p className="truncate text-xs text-stone">{user.email}</p>
               </div>
-            </div>
+            </NavLink>
             <button
               type="button"
               onClick={() => {
@@ -112,7 +116,7 @@ export function Sidebar() {
               }}
               className="w-full rounded-lg border border-leaf/30 px-3 py-2 text-sm font-medium text-forest transition-colors hover:border-leaf/50 hover:bg-leaf/5"
             >
-              Logout
+              Sign out
             </button>
           </div>
         ) : (

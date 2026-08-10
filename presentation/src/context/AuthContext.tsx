@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { authenticateWithGoogle, logoutFromServer } from "../services/authApi";
-import type { User } from "../types/auth";
+import { mapApiUser, type User } from "../types/auth";
 
 const TOKEN_KEY = "auth_token";
 const USER_KEY = "auth_user";
@@ -16,8 +16,10 @@ type AuthContextValue = {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  getAccessToken: () => string | null;
   loginWithGoogle: (idToken: string) => Promise<void>;
   logout: () => Promise<void>;
+  updateUser: (next: User) => void;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -26,7 +28,18 @@ function loadStoredUser(): User | null {
   const raw = localStorage.getItem(USER_KEY);
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as User;
+    const parsed = JSON.parse(raw) as Partial<User>;
+    if (!parsed.email || !parsed.name) return null;
+    return {
+      id: parsed.id ?? "",
+      name: parsed.name,
+      email: parsed.email,
+      profile_picture: parsed.profile_picture ?? "",
+      nickname: parsed.nickname ?? "",
+      bio: parsed.bio ?? "",
+      phone: parsed.phone ?? "",
+      created_at: parsed.created_at ?? null,
+    };
   } catch {
     return null;
   }
@@ -47,23 +60,30 @@ function loadInitialAuth(): User | null {
   return storedUser;
 }
 
+function persistUser(next: User) {
+  localStorage.setItem(USER_KEY, JSON.stringify(next));
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(loadInitialAuth);
   const [isLoading, setIsLoading] = useState(false);
 
   const isAuthenticated = Boolean(user);
 
+  const getAccessToken = useCallback(() => loadStoredToken(), []);
+
+  const updateUser = useCallback((next: User) => {
+    persistUser(next);
+    setUser(next);
+  }, []);
+
   const loginWithGoogle = useCallback(async (idToken: string) => {
     setIsLoading(true);
     try {
       const data = await authenticateWithGoogle(idToken);
-      const storedUser: User = {
-        name: data.user.full_name,
-        email: data.user.email,
-        profile_picture: data.user.profile_picture,
-      };
+      const storedUser = mapApiUser(data.user);
       localStorage.setItem(TOKEN_KEY, data.access_token);
-      localStorage.setItem(USER_KEY, JSON.stringify(storedUser));
+      persistUser(storedUser);
       setUser(storedUser);
     } finally {
       setIsLoading(false);
@@ -82,8 +102,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, isAuthenticated, isLoading, loginWithGoogle, logout }),
-    [user, isAuthenticated, isLoading, loginWithGoogle, logout],
+    () => ({
+      user,
+      isAuthenticated,
+      isLoading,
+      getAccessToken,
+      loginWithGoogle,
+      logout,
+      updateUser,
+    }),
+    [
+      user,
+      isAuthenticated,
+      isLoading,
+      getAccessToken,
+      loginWithGoogle,
+      logout,
+      updateUser,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

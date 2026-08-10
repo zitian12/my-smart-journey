@@ -93,6 +93,41 @@ class UserRepository:
             user_id,
         )
 
+    async def update_profile(self, user_id: str, fields: dict) -> dict | None:
+        """Update editable profile fields and return the updated user."""
+        if not fields:
+            return await self.get_user_by_id(user_id)
+
+        try:
+            object_id = ObjectId(user_id)
+        except InvalidId:
+            return None
+
+        result = await self._collection.update_one(
+            {"_id": object_id},
+            {"$set": fields},
+        )
+
+        if result.matched_count == 0:
+            return None
+
+        logger.info("Updated user profile — id=%s fields=%s", user_id, list(fields))
+        return await self.get_user_by_id(user_id)
+
+    async def delete_user(self, user_id: str) -> bool:
+        """Delete a user document by id. Returns True if a document was removed."""
+        try:
+            object_id = ObjectId(user_id)
+        except InvalidId:
+            return False
+
+        result = await self._collection.delete_one({"_id": object_id})
+        if result.deleted_count == 0:
+            return False
+
+        logger.info("Deleted user — id=%s", user_id)
+        return True
+
     @staticmethod
     def _serialize(document: dict | None) -> dict | None:
         if document is None:
@@ -101,8 +136,11 @@ class UserRepository:
             "id": str(document["_id"]),
             "google_id": document.get("google_id"),
             "email": document["email"],
-            "full_name": document.get("full_name"),
-            "profile_picture": document.get("profile_picture"),
+            "full_name": document.get("full_name") or "",
+            "profile_picture": document.get("profile_picture") or "",
+            "nickname": document.get("nickname") or "",
+            "bio": document.get("bio") or "",
+            "phone": document.get("phone") or "",
             "created_at": document.get("created_at"),
             "last_login": document.get("last_login"),
         }

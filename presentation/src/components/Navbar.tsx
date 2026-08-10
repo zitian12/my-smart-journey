@@ -89,7 +89,7 @@ export function Navbar() {
                 }}
                 className="rounded-lg border border-leaf/30 bg-transparent px-3 py-2 text-sm font-medium text-forest transition-colors hover:border-leaf/50 hover:bg-leaf/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-leaf sm:px-4"
               >
-                Logout
+                Sign out
               </button>
             </>
           ) : (

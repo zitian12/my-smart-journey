@@ -9,6 +9,7 @@ if str(_ROOT) not in sys.path:
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from database.connection import verify_connection
 from integration.repositories import UserRepository
@@ -18,6 +19,10 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
 )
+
+_UPLOADS_DIR = Path(__file__).resolve().parent / "uploads"
+_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+(_UPLOADS_DIR / "avatars").mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="My Smart Journey")
 
@@ -30,6 +35,7 @@ app.add_middleware(
 )
 
 app.include_router(api_router)
+app.mount("/uploads", StaticFiles(directory=str(_UPLOADS_DIR)), name="uploads")
 
 
 @app.on_event("startup")

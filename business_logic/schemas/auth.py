@@ -2,16 +2,15 @@
 
 from pydantic import BaseModel
 
+from schemas.profile import UserProfileResponse
+
 
 class GoogleAuthRequest(BaseModel):
     token: str
 
 
-class UserResponse(BaseModel):
-    id: str
-    email: str
-    full_name: str
-    profile_picture: str
+class UserResponse(UserProfileResponse):
+    """User payload returned after authentication."""
 
 
 class AuthResponse(BaseModel):

@@ -37,7 +37,10 @@ export function DashboardPage() {
   const { showComingSoon } = useComingSoonToast();
   const navigate = useNavigate();
 
-  const greetingName = isAuthenticated && user ? user.name.split(" ")[0] : "Traveler";
+  const greetingName =
+    isAuthenticated && user
+      ? user.nickname.trim() || user.name.split(" ")[0]
+      : "Traveler";
 
   return (
     <div className="mx-auto max-w-4xl animate-fade-up space-y-10">
@@ -55,23 +58,35 @@ export function DashboardPage() {
       </header>
 
       {isAuthenticated && user ? (
-        <section className="flex items-center gap-4 rounded-2xl bg-white p-5 ring-1 ring-forest/5">
-          {user.profile_picture ? (
-            <img
-              src={user.profile_picture}
-              alt={user.name}
-              className="h-14 w-14 rounded-full object-cover ring-2 ring-leaf/20"
-              referrerPolicy="no-referrer"
-            />
-          ) : (
-            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-leaf/15 text-lg font-semibold text-forest">
-              {user.name.charAt(0).toUpperCase()}
+        <section className="flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-white p-5 ring-1 ring-forest/5">
+          <div className="flex min-w-0 items-center gap-4">
+            {user.profile_picture ? (
+              <img
+                src={user.profile_picture}
+                alt={user.name}
+                className="h-14 w-14 rounded-full object-cover ring-2 ring-leaf/20"
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-leaf/15 text-lg font-semibold text-forest">
+                {user.name.charAt(0).toUpperCase()}
+              </div>
+            )}
+            <div className="min-w-0">
+              <p className="truncate text-lg font-semibold text-ink">{user.name}</p>
+              <p className="truncate text-sm text-stone">{user.email}</p>
+              {user.bio ? (
+                <p className="mt-1 line-clamp-2 text-sm text-stone">{user.bio}</p>
+              ) : null}
             </div>
-          )}
-          <div className="min-w-0">
-            <p className="truncate text-lg font-semibold text-ink">{user.name}</p>
-            <p className="truncate text-sm text-stone">{user.email}</p>
           </div>
+          <button
+            type="button"
+            onClick={() => navigate("/dashboard/profile")}
+            className="rounded-lg border border-leaf/30 px-3 py-2 text-sm font-medium text-forest transition-colors hover:border-leaf/50 hover:bg-leaf/5"
+          >
+            Settings
+          </button>
         </section>
       ) : null}
 

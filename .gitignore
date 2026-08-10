@@ -15,6 +15,9 @@ dist/
 build/
 *.egg-info/
 
+# Uploaded media
+business_logic/uploads/
+
 # IDE / OS
 .idea/
 .vscode/
