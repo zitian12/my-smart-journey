@@ -12,7 +12,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from database.connection import verify_connection
-from integration.repositories import UserRepository
+from integration.repositories import (
+    DestinationCategoryRepository,
+    DestinationRepository,
+    UserRepository,
+)
 from routers import api_router
 
 logging.basicConfig(
@@ -43,6 +47,12 @@ async def startup() -> None:
     await verify_connection()
     user_repository = UserRepository()
     await user_repository.ensure_indexes()
+
+    category_repository = DestinationCategoryRepository()
+    await category_repository.ensure_indexes()
+
+    destination_repository = DestinationRepository()
+    await destination_repository.ensure_indexes()
 
 
 @app.get("/")

@@ -50,7 +50,7 @@ export function Navbar() {
             <NavLink to="/" end className={navLinkClass}>
               Home
             </NavLink>
-            <NavLink to="/destinations" className={navLinkClass}>
+            <NavLink to="/dashboard/destinations" className={navLinkClass}>
               Destinations
             </NavLink>
           </nav>
