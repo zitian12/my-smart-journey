@@ -1,6 +1,7 @@
 import type {
   ItineraryGenerateRequest,
   ItineraryGenerateResponse,
+  ItineraryRecomputeRequest,
 } from "../types/itinerary";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
@@ -37,6 +38,22 @@ export async function generateItinerary(
 
   if (!response.ok) {
     throw new Error(await readError(response, "Failed to generate itinerary"));
+  }
+
+  return response.json();
+}
+
+export async function recomputeItinerary(
+  payload: ItineraryRecomputeRequest,
+): Promise<ItineraryGenerateResponse> {
+  const response = await fetch(`${API_URL}/api/itineraries/recompute`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(await readError(response, "Failed to update itinerary"));
   }
 
   return response.json();

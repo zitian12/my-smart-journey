@@ -245,6 +245,192 @@ class ItineraryGenerationService:
             "notes": notes,
         }
 
+    def recompute(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Rebuild legs/totals from an explicit user stop list.
+
+        Default: preserves array/order and optional day/stay.
+        With optimize_order=True (Add stop): re-order by driving corridor and
+        re-pack days. Never drops stops for feasibility — over-budget noted only.
+        """
+        self._route_cache = {}
+        destinations_raw = list(payload.get("destinations") or [])
+        optimize_order = bool(payload.get("optimize_order"))
+
+        start = self._resolve_place(payload.get("start") or payload.get("start_location"))
+        end = self._resolve_place(payload.get("end") or payload.get("end_location"))
+        interests = [str(i) for i in (payload.get("interests") or [])]
+        preferred_mode = str(payload.get("preferred_mode") or "driving").lower()
+        hours_per_day = int(payload.get("hours_per_day") or _DEFAULT_HOURS_PER_DAY)
+        days = max(1, min(30, int(payload.get("days") or 1)))
+        if payload.get("nights") is None:
+            nights = max(0, days - 1)
+        else:
+            nights = max(0, min(30, int(payload["nights"])))
+        daily_budget_min = hours_per_day * 60
+        notes: list[str] = []
+
+        resolved: list[dict[str, Any]] = []
+        for index, item in enumerate(destinations_raw):
+            if not isinstance(item, dict):
+                item = {"name": item}
+            place = self._resolve_place(item)
+            if item.get("stay_min") is not None:
+                place["stay_min"] = _clamp_stay(int(item["stay_min"]))
+            elif item.get("recommended_stay_minutes") is not None:
+                place["stay_min"] = _clamp_stay(int(item["recommended_stay_minutes"]))
+            if item.get("day") is not None:
+                place["user_day"] = max(1, min(days, int(item["day"])))
+            if item.get("order") is not None:
+                place["user_order"] = int(item["order"])
+            else:
+                place["user_order"] = index + 1
+            resolved.append(place)
+
+        if optimize_order and resolved:
+            resolved = self._order_stops(start, end, resolved, interests)
+            notes.append(
+                "Stop order and days were re-planned for the driving corridor."
+            )
+        else:
+            resolved.sort(key=lambda p: int(p.get("user_order") or 0))
+
+        path = self._build_path(start, resolved, end)
+        has_user_days = (
+            not optimize_order
+            and bool(resolved)
+            and all(p.get("user_day") is not None for p in resolved)
+        )
+        if has_user_days:
+            scheduled = self._apply_user_days(path, days=days)
+        else:
+            scheduled = self._schedule_days(
+                path, days=days, daily_budget_min=daily_budget_min
+            )
+            scheduled = self._ensure_days_spread(
+                scheduled,
+                days=days,
+                daily_budget_min=daily_budget_min,
+            )
+            # Re-attach any stops dropped by overflow on last day.
+            kept_ids = {
+                str(p["id"]) for p in scheduled if p.get("role") == "stop"
+            }
+            missing = [p for p in resolved if str(p["id"]) not in kept_ids]
+            if missing:
+                last_day = days
+                for stop in missing:
+                    scheduled.insert(
+                        -1,
+                        {
+                            **stop,
+                            "role": "stop",
+                            "day": last_day,
+                            "stay_min": int(stop.get("stay_min") or _DEFAULT_STAY_MIN),
+                        },
+                    )
+                notes.append(
+                    "Some stops exceeded the daily hours budget; they were kept "
+                    f"on day {last_day} without removing them."
+                )
+
+        legs = self._build_legs(scheduled, preferred_mode=preferred_mode)
+        day_totals = self._build_day_totals(scheduled, legs, days=days)
+
+        ordered_destinations: list[dict[str, Any]] = []
+        order = 1
+        for place in scheduled:
+            if place.get("role") in {"start", "end"}:
+                continue
+            ordered_destinations.append(
+                {
+                    "id": place["id"],
+                    "name": place["name"],
+                    "order": order,
+                    "day": int(place.get("day") or 1),
+                    "stay_min": int(place.get("stay_min") or _DEFAULT_STAY_MIN),
+                    "latitude": place.get("latitude"),
+                    "longitude": place.get("longitude"),
+                    "category_slug": place.get("category_slug"),
+                }
+            )
+            order += 1
+
+        travel_duration = sum(int(leg["duration_min"]) for leg in legs)
+        stay_duration = sum(int(d["stay_min"]) for d in ordered_destinations)
+        total_distance = round(sum(float(leg["distance_km"]) for leg in legs), 2)
+        total_carbon = round(
+            sum(
+                next(
+                    (
+                        float(opt["carbon_kg"])
+                        for opt in leg["transport_options"]
+                        if opt.get("mode") == leg.get("selected_mode")
+                    ),
+                    0.0,
+                )
+                for leg in legs
+            ),
+            3,
+        )
+
+        for day_total in day_totals:
+            if int(day_total["duration_min"]) > daily_budget_min:
+                notes.append(
+                    f"Day {day_total['day']} exceeds {hours_per_day} hrs/day budget."
+                )
+
+        return {
+            "start_location": start["name"],
+            "end_location": end["name"],
+            "days": days,
+            "nights": nights,
+            "hours_per_day": hours_per_day,
+            "interests": interests,
+            "preferred_mode": preferred_mode,
+            "destinations": ordered_destinations,
+            "legs": legs,
+            "totals": {
+                "duration_min": travel_duration + stay_duration,
+                "travel_duration_min": travel_duration,
+                "stay_duration_min": stay_duration,
+                "distance_km": total_distance,
+                "carbon_kg": total_carbon,
+            },
+            "day_totals": day_totals,
+            "excluded_destinations": [],
+            "notes": notes,
+        }
+
+    def _apply_user_days(
+        self,
+        path: list[dict[str, Any]],
+        *,
+        days: int,
+    ) -> list[dict[str, Any]]:
+        """Assign days from user_day on stops; start=1, end=last stop day."""
+        scheduled: list[dict[str, Any]] = []
+        max_stop_day = 1
+        for place in path:
+            row = dict(place)
+            role = row.get("role")
+            if role == "start":
+                row["day"] = 1
+                row["stay_min"] = 0
+            elif role == "end":
+                row["day"] = min(days, max(1, max_stop_day))
+                row["stay_min"] = 0
+            else:
+                day = max(1, min(days, int(row.get("user_day") or 1)))
+                row["day"] = day
+                row["stay_min"] = int(row.get("stay_min") or _DEFAULT_STAY_MIN)
+                max_stop_day = max(max_stop_day, day)
+            scheduled.append(row)
+        # Fix end day after max_stop_day is known.
+        for row in scheduled:
+            if row.get("role") == "end":
+                row["day"] = min(days, max(1, max_stop_day))
+        return scheduled
+
     def _estimate_days(
         self,
         start: dict[str, Any],

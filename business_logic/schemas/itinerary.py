@@ -42,6 +42,50 @@ class ItineraryGenerateRequest(BaseModel):
         return self
 
 
+class RecomputeStopInput(PlaceInput):
+    """Explicit stop for recompute; order/day/stay are preserved when set."""
+
+    order: int | None = Field(default=None, ge=1)
+    day: int | None = Field(default=None, ge=1, le=30)
+    stay_min: int | None = Field(default=None, ge=30, le=480)
+
+
+class ItineraryRecomputeRequest(BaseModel):
+    """Rebuild legs/schedule from an explicit stop list (no AI re-pick)."""
+
+    start: PlaceInput
+    end: PlaceInput
+    destinations: list[RecomputeStopInput] = Field(default_factory=list)
+    days: int = Field(ge=1, le=30)
+    nights: int = Field(ge=0, le=30)
+    hours_per_day: int = Field(ge=1, le=16)
+    interests: list[str] = Field(default_factory=list)
+    preferred_mode: Literal["driving"] = "driving"
+    # When true (e.g. after Add stop): re-order by corridor and re-pack days.
+    optimize_order: bool = False
+
+    @model_validator(mode="after")
+    def validate_trip_bounds(self) -> ItineraryRecomputeRequest:
+        if self.nights not in {self.days - 1, self.days}:
+            raise ValueError(
+                f"nights must be {self.days - 1} or {self.days} for a {self.days}-day trip"
+            )
+        if self.start.latitude is None or self.start.longitude is None:
+            raise ValueError("start must include latitude and longitude")
+        if self.end.latitude is None or self.end.longitude is None:
+            raise ValueError("end must include latitude and longitude")
+        for stop in self.destinations:
+            if stop.latitude is None or stop.longitude is None:
+                raise ValueError(
+                    f"destination '{stop.name}' must include latitude and longitude"
+                )
+            if stop.day is not None and stop.day > self.days:
+                raise ValueError(
+                    f"destination '{stop.name}' day {stop.day} exceeds trip days {self.days}"
+                )
+        return self
+
+
 class PlaceRef(BaseModel):
     id: str
     name: str

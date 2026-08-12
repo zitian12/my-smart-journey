@@ -17,6 +17,25 @@ export type ItineraryGenerateRequest = {
   preferred_mode?: "driving";
 };
 
+export type RecomputeStopInput = PlaceInput & {
+  order?: number | null;
+  day?: number | null;
+  stay_min?: number | null;
+};
+
+export type ItineraryRecomputeRequest = {
+  start: PlaceInput;
+  end: PlaceInput;
+  destinations: RecomputeStopInput[];
+  days: number;
+  nights: number;
+  hours_per_day: number;
+  interests?: string[];
+  preferred_mode?: "driving";
+  /** Re-order by corridor and re-pack days (used when adding a stop). */
+  optimize_order?: boolean;
+};
+
 export type PlaceRef = {
   id: string;
   name: string;
