@@ -97,6 +97,30 @@ class DestinationRepository:
         documents = await cursor.to_list(length=limit)
         return [self._serialize(doc) for doc in documents]
 
+    async def list_with_coordinates(
+        self,
+        *,
+        active_only: bool = True,
+        limit: int = 500,
+    ) -> list[dict]:
+        """Return active destinations that have usable map coordinates."""
+        query: dict[str, Any] = {
+            "latitude": {"$ne": None, "$exists": True},
+            "longitude": {"$ne": None, "$exists": True},
+        }
+        if active_only:
+            query["is_active"] = True
+
+        cursor = self._collection.find(query).sort("destination_name", 1).limit(limit)
+        documents = await cursor.to_list(length=limit)
+        serialized = [self._serialize(doc) for doc in documents]
+        return [
+            item
+            for item in serialized
+            if isinstance(item.get("latitude"), (int, float))
+            and isinstance(item.get("longitude"), (int, float))
+        ]
+
     async def get_by_id(self, destination_id: str) -> dict | None:
         """Return a destination by id, or None if not found."""
         try:

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from typing import Literal
+
+from pydantic import BaseModel, Field, model_validator
 
 
 class PlaceInput(BaseModel):
@@ -17,13 +19,27 @@ class PlaceInput(BaseModel):
 
 
 class ItineraryGenerateRequest(BaseModel):
+    """User trip constraints; destinations are selected server-side from catalog."""
+
     start: PlaceInput
     end: PlaceInput
-    destinations: list[PlaceInput] = Field(min_length=1)
-    days: int | None = Field(default=None, ge=1, le=30)
-    hours_per_day: int | None = Field(default=None, ge=1, le=16)
+    days: int = Field(ge=1, le=30)
+    nights: int = Field(ge=0, le=30)
+    hours_per_day: int = Field(ge=1, le=16)
     interests: list[str] = Field(default_factory=list)
-    nights: int | None = Field(default=None, ge=0, le=30)
+    preferred_mode: Literal["driving"] = "driving"
+
+    @model_validator(mode="after")
+    def validate_nights_vs_days(self) -> ItineraryGenerateRequest:
+        if self.nights not in {self.days - 1, self.days}:
+            raise ValueError(
+                f"nights must be {self.days - 1} or {self.days} for a {self.days}-day trip"
+            )
+        if self.start.latitude is None or self.start.longitude is None:
+            raise ValueError("start must include latitude and longitude")
+        if self.end.latitude is None or self.end.longitude is None:
+            raise ValueError("end must include latitude and longitude")
+        return self
 
 
 class PlaceRef(BaseModel):
@@ -37,6 +53,9 @@ class OrderedDestination(BaseModel):
     order: int
     day: int
     stay_min: int
+    latitude: float | None = None
+    longitude: float | None = None
+    category_slug: str | None = None
 
 
 class TransportOption(BaseModel):
@@ -57,6 +76,8 @@ class ItineraryLeg(BaseModel):
     selected_mode: str
     day: int | None = None
     steps: list[dict] = Field(default_factory=list)
+    # Driving path as [[lat, lng], ...] for map polyline.
+    path: list[list[float]] = Field(default_factory=list)
 
 
 class ItineraryTotals(BaseModel):
@@ -81,6 +102,7 @@ class ItineraryGenerateResponse(BaseModel):
     nights: int
     hours_per_day: int
     interests: list[str]
+    preferred_mode: str = "driving"
     destinations: list[OrderedDestination]
     legs: list[ItineraryLeg]
     totals: ItineraryTotals

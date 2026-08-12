@@ -2,10 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { DestinationImage } from "../components/DestinationImage";
 import { MalaysiaMap, type MapMarker } from "../components/MalaysiaMap";
-import {
-  fetchDestinationCategories,
-  fetchDestinations,
-} from "../services/destinationApi";
+import { fetchDestinationCategories, fetchDestinations } from "../services/destinationApi";
 import { generateItinerary } from "../services/itineraryApi";
 import type { Destination, DestinationCategory } from "../types/destination";
 import type {
@@ -184,34 +181,32 @@ export function PlanningPage() {
   const navigate = useNavigate();
   const [start, setStart] = useState<PlaceCoords | null>(null);
   const [end, setEnd] = useState<PlaceCoords | null>(null);
-  const [wishlist, setWishlist] = useState<PlaceCoords[]>([]);
-
+  const [days, setDays] = useState(3);
+  const [nights, setNights] = useState(2);
+  const [hoursPerDay, setHoursPerDay] = useState(8);
+  const [interests, setInterests] = useState<string[]>([]);
   const [categories, setCategories] = useState<DestinationCategory[]>([]);
-  const [nameQuery, setNameQuery] = useState("");
-  const [debouncedName, setDebouncedName] = useState("");
-  const [stateFilter, setStateFilter] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState("");
-  const [availableStates, setAvailableStates] = useState<string[]>([]);
-  const [catalog, setCatalog] = useState<Destination[]>([]);
-  const [catalogLoading, setCatalogLoading] = useState(true);
-  const [catalogError, setCatalogError] = useState<string | null>(null);
-
+  const [categoriesError, setCategoriesError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => setDebouncedName(nameQuery), 300);
-    return () => window.clearTimeout(timer);
-  }, [nameQuery]);
+  const [nightsTouched, setNightsTouched] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     async function loadCategories() {
       try {
         const data = await fetchDestinationCategories();
-        if (!cancelled) setCategories(data);
-      } catch {
-        /* optional for filter dropdown */
+        if (!cancelled) {
+          setCategories(data);
+          setCategoriesError(null);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setCategories([]);
+          setCategoriesError(
+            err instanceof Error ? err.message : "Failed to load categories",
+          );
+        }
       }
     }
     void loadCategories();
@@ -221,68 +216,10 @@ export function PlanningPage() {
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    async function loadStates() {
-      try {
-        const data = await fetchDestinations({
-          name: debouncedName || undefined,
-          category: categoryFilter || undefined,
-        });
-        if (cancelled) return;
-        const states = Array.from(
-          new Set(data.map((item) => item.state.trim()).filter(Boolean)),
-        ).sort((a, b) => a.localeCompare(b));
-        setAvailableStates(states);
-        setStateFilter((current) =>
-          current && !states.includes(current) ? "" : current,
-        );
-      } catch {
-        if (!cancelled) setAvailableStates([]);
-      }
+    if (!nightsTouched) {
+      setNights(Math.max(0, days - 1));
     }
-    void loadStates();
-    return () => {
-      cancelled = true;
-    };
-  }, [debouncedName, categoryFilter]);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function loadCatalog() {
-      setCatalogLoading(true);
-      setCatalogError(null);
-      try {
-        const data = await fetchDestinations({
-          name: debouncedName || undefined,
-          state: stateFilter || undefined,
-          category: categoryFilter || undefined,
-        });
-        if (!cancelled) {
-          setCatalog(data.filter(hasCoords));
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setCatalog([]);
-          setCatalogError(
-            err instanceof Error ? err.message : "Failed to load destinations",
-          );
-        }
-      } finally {
-        if (!cancelled) setCatalogLoading(false);
-      }
-    }
-    void loadCatalog();
-    return () => {
-      cancelled = true;
-    };
-  }, [debouncedName, stateFilter, categoryFilter]);
-
-  const selectedIds = useMemo(() => {
-    const ids = new Set(wishlist.map((s) => s.id));
-    if (start) ids.add(start.id);
-    if (end) ids.add(end.id);
-    return ids;
-  }, [start, end, wishlist]);
+  }, [days, nightsTouched]);
 
   const mapMarkers: MapMarker[] = useMemo(() => {
     const markers: MapMarker[] = [];
@@ -296,16 +233,6 @@ export function PlanningPage() {
         kind: "start",
       });
     }
-    wishlist.forEach((place) => {
-      markers.push({
-        id: place.id,
-        name: place.name,
-        lat: place.latitude,
-        lng: place.longitude,
-        label: "•",
-        kind: "stop",
-      });
-    });
     if (end) {
       markers.push({
         id: `end-${end.id}`,
@@ -317,17 +244,40 @@ export function PlanningPage() {
       });
     }
     return markers;
-  }, [start, end, wishlist]);
+  }, [start, end]);
 
-  const toggleWish = (destination: Destination) => {
-    if (!hasCoords(destination)) return;
-    const place = toPlaceCoords(destination);
-    setWishlist((prev) => {
-      if (prev.some((s) => s.id === place.id)) {
-        return prev.filter((s) => s.id !== place.id);
-      }
-      return [...prev, place];
-    });
+  const toggleInterest = (slug: string) => {
+    setInterests((prev) =>
+      prev.includes(slug) ? prev.filter((s) => s !== slug) : [...prev, slug],
+    );
+  };
+
+  const onDaysChange = (value: number) => {
+    const next = Math.max(1, Math.min(30, value));
+    setDays(next);
+    if (!nightsTouched) {
+      setNights(Math.max(0, next - 1));
+    } else if (nights !== next - 1 && nights !== next) {
+      setNights(Math.max(0, next - 1));
+      setNightsTouched(false);
+    }
+  };
+
+  const onNightsChange = (value: number) => {
+    setNightsTouched(true);
+    const capped = Math.max(0, Math.min(30, value));
+    // Keep nights in {days-1, days}
+    if (capped === days || capped === days - 1) {
+      setNights(capped);
+    } else if (capped > days) {
+      setNights(days);
+    } else {
+      setNights(Math.max(0, days - 1));
+    }
+  };
+
+  const onHoursPerDayChange = (value: number) => {
+    setHoursPerDay(Math.max(1, Math.min(16, value || 1)));
   };
 
   const onGenerate = async () => {
@@ -336,8 +286,12 @@ export function PlanningPage() {
       setFormError("Pick a start and end destination from the catalog.");
       return;
     }
-    if (wishlist.length < 1) {
-      setFormError("Add at least one place you want to visit.");
+    if (nights !== days - 1 && nights !== days) {
+      setFormError(`Nights must be ${days - 1} or ${days} for a ${days}-day trip.`);
+      return;
+    }
+    if (hoursPerDay < 1 || hoursPerDay > 16) {
+      setFormError("Hours per day must be between 1 and 16.");
       return;
     }
 
@@ -346,10 +300,27 @@ export function PlanningPage() {
       const itinerary = await generateItinerary({
         start: toPlaceInput(start),
         end: toPlaceInput(end),
-        destinations: wishlist.map(toPlaceInput),
+        days,
+        nights,
+        hours_per_day: hoursPerDay,
+        interests,
+        preferred_mode: "driving",
       });
 
-      const places: PlaceCoords[] = [start, ...wishlist, end];
+      const stopPlaces: PlaceCoords[] = itinerary.destinations
+        .filter(
+          (d) =>
+            typeof d.latitude === "number" && typeof d.longitude === "number",
+        )
+        .map((d) => ({
+          id: d.id,
+          name: d.name,
+          latitude: d.latitude as number,
+          longitude: d.longitude as number,
+          category_slug: d.category_slug ?? null,
+        }));
+
+      const places: PlaceCoords[] = [start, ...stopPlaces, end];
       const unique = Array.from(
         new Map(places.map((p) => [p.id, p])).values(),
       );
@@ -376,13 +347,18 @@ export function PlanningPage() {
             Plan your route
           </h1>
           <p className="mt-2 max-w-xl text-sm text-stone">
-            Pick start, end, and places you want to visit. The system decides
-            days, nights, stay times, visit order, and transport.
+            Choose days, nights, hours per day, start, end, and optional
+            interests. Visit time + travel each day stays within your hours
+            budget; the system picks catalog stops for a driving trip.
           </p>
         </div>
         <div className="rounded-xl bg-white px-4 py-3 text-sm text-stone ring-1 ring-forest/10">
-          <span className="font-semibold text-forest">{wishlist.length}</span>{" "}
-          places selected · duration & route auto-planned
+          <span className="font-semibold text-forest">{days}</span> day
+          {days === 1 ? "" : "s"} ·{" "}
+          <span className="font-semibold text-forest">{nights}</span> night
+          {nights === 1 ? "" : "s"} ·{" "}
+          <span className="font-semibold text-forest">{hoursPerDay}</span>
+          h/day · car only
         </div>
       </header>
 
@@ -393,158 +369,113 @@ export function PlanningPage() {
               label="Starting point"
               value={start}
               onChange={setStart}
-              excludeIds={[end?.id, ...wishlist.map((s) => s.id)].filter(
-                Boolean,
-              ) as string[]}
+              excludeIds={[end?.id].filter(Boolean) as string[]}
             />
             <PlacePicker
               label="Ending point"
               value={end}
               onChange={setEnd}
-              excludeIds={[start?.id, ...wishlist.map((s) => s.id)].filter(
-                Boolean,
-              ) as string[]}
+              excludeIds={[start?.id].filter(Boolean) as string[]}
             />
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <label className="block space-y-2">
+              <span className="text-sm font-medium text-stone">Days</span>
+              <FieldShell>
+                <input
+                  type="number"
+                  min={1}
+                  max={30}
+                  value={days}
+                  onChange={(e) => onDaysChange(Number(e.target.value) || 1)}
+                  className="w-full bg-transparent text-sm text-ink outline-none"
+                />
+              </FieldShell>
+            </label>
+            <label className="block space-y-2">
+              <span className="text-sm font-medium text-stone">Nights</span>
+              <FieldShell>
+                <input
+                  type="number"
+                  min={0}
+                  max={30}
+                  value={nights}
+                  onChange={(e) => onNightsChange(Number(e.target.value) || 0)}
+                  className="w-full bg-transparent text-sm text-ink outline-none"
+                />
+              </FieldShell>
+              <span className="text-xs text-stone">
+                Allowed: {Math.max(0, days - 1)} or {days}
+              </span>
+            </label>
+            <label className="block space-y-2">
+              <span className="text-sm font-medium text-stone">Hours / day</span>
+              <FieldShell>
+                <input
+                  type="number"
+                  min={1}
+                  max={16}
+                  value={hoursPerDay}
+                  onChange={(e) =>
+                    onHoursPerDayChange(Number(e.target.value) || 1)
+                  }
+                  className="w-full bg-transparent text-sm text-ink outline-none"
+                />
+              </FieldShell>
+              <span className="text-xs text-stone">
+                Visit + travel must fit within this
+              </span>
+            </label>
+            <label className="block space-y-2">
+              <span className="text-sm font-medium text-stone">Transport</span>
+              <div className="rounded-xl border border-leaf/20 bg-leaf/10 px-3 py-2.5 text-sm font-medium text-forest">
+                Car / driving
+              </div>
+            </label>
           </div>
 
           <div className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-sm font-semibold text-ink">
-                Places you want to visit
+                Interests (optional)
               </h2>
               <span className="rounded-full bg-leaf/10 px-2.5 py-0.5 text-xs font-medium text-leaf">
-                Wishlist · order auto
+                Soft preference · catalog categories
               </span>
             </div>
-
-            <div className="grid gap-3 sm:grid-cols-3">
-              <input
-                type="search"
-                value={nameQuery}
-                onChange={(e) => setNameQuery(e.target.value)}
-                placeholder="Search name…"
-                className="rounded-xl border border-forest/15 bg-mist/30 px-3 py-2.5 text-sm outline-none focus:border-leaf focus:ring-2 focus:ring-leaf/20 sm:col-span-1"
-              />
-              <select
-                value={stateFilter}
-                onChange={(e) => setStateFilter(e.target.value)}
-                className="rounded-xl border border-forest/15 bg-mist/30 px-3 py-2.5 text-sm outline-none focus:border-leaf focus:ring-2 focus:ring-leaf/20"
-              >
-                <option value="">All states</option>
-                {availableStates.map((state) => (
-                  <option key={state} value={state}>
-                    {state}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={categoryFilter}
-                onChange={(e) => setCategoryFilter(e.target.value)}
-                className="rounded-xl border border-forest/15 bg-mist/30 px-3 py-2.5 text-sm outline-none focus:border-leaf focus:ring-2 focus:ring-leaf/20"
-              >
-                <option value="">All categories</option>
-                {categories.map((category) => (
-                  <option key={category.id} value={category.slug}>
-                    {category.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {catalogError ? (
+            {categoriesError ? (
               <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">
-                {catalogError}
+                {categoriesError}
               </p>
             ) : null}
-
-            <div className="max-h-64 space-y-2 overflow-y-auto rounded-xl bg-mist/40 p-2 ring-1 ring-forest/5">
-              {catalogLoading ? (
-                <p className="px-2 py-4 text-sm text-stone">Loading destinations…</p>
-              ) : catalog.length === 0 ? (
-                <p className="px-2 py-4 text-sm text-stone">
-                  No destinations with map coordinates match these filters.
-                </p>
+            <div className="flex flex-wrap gap-2">
+              {categories.length === 0 && !categoriesError ? (
+                <p className="text-sm text-stone">Loading categories…</p>
               ) : (
-                catalog.slice(0, 40).map((destination) => {
-                  const selected = selectedIds.has(destination.id);
-                  const isEndpoint =
-                    start?.id === destination.id || end?.id === destination.id;
+                categories.map((category) => {
+                  const selected = interests.includes(category.slug);
                   return (
                     <button
-                      key={destination.id}
+                      key={category.id}
                       type="button"
-                      disabled={isEndpoint}
-                      onClick={() => toggleWish(destination)}
-                      className={`flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition ${
+                      onClick={() => toggleInterest(category.slug)}
+                      className={`rounded-full px-3 py-1.5 text-sm font-medium transition ${
                         selected
-                          ? "bg-leaf/15 ring-1 ring-leaf/30"
-                          : "hover:bg-white"
-                      } ${isEndpoint ? "cursor-not-allowed opacity-50" : ""}`}
+                          ? "bg-forest text-white"
+                          : "bg-mist text-ink ring-1 ring-forest/10 hover:bg-leaf/10"
+                      }`}
                     >
-                      <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-white">
-                        <DestinationImage
-                          images={destination.images}
-                          alt={destination.destination_name}
-                        />
-                      </div>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium text-ink">
-                          {destination.destination_name}
-                        </span>
-                        <span className="block truncate text-xs text-stone">
-                          {[destination.state, destination.category_name]
-                            .filter(Boolean)
-                            .join(" · ")}
-                        </span>
-                      </span>
-                      <span className="shrink-0 text-xs font-semibold text-leaf">
-                        {isEndpoint
-                          ? "Endpoint"
-                          : selected
-                            ? "Added"
-                            : "Add"}
-                      </span>
+                      {category.name}
                     </button>
                   );
                 })
               )}
             </div>
-          </div>
-
-          <div className="space-y-3">
-            <h2 className="text-sm font-semibold text-ink">
-              Selected places ({wishlist.length})
-            </h2>
-            {wishlist.length === 0 ? (
-              <p className="rounded-xl bg-mist/60 px-4 py-3 text-sm text-stone">
-                Add places above. Visit order will be optimized automatically.
-              </p>
-            ) : (
-              <ul className="flex flex-wrap gap-2">
-                {wishlist.map((place) => (
-                  <li
-                    key={place.id}
-                    className="inline-flex items-center gap-2 rounded-full bg-mist px-3 py-1.5 text-sm text-ink ring-1 ring-leaf/20"
-                  >
-                    <span className="max-w-[12rem] truncate font-medium">
-                      {place.name}
-                    </span>
-                    <button
-                      type="button"
-                      aria-label={`Remove ${place.name}`}
-                      onClick={() =>
-                        setWishlist((prev) =>
-                          prev.filter((s) => s.id !== place.id),
-                        )
-                      }
-                      className="text-stone hover:text-red-600"
-                    >
-                      ×
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <p className="text-xs text-stone">
+              Stops are chosen automatically from the destination catalog along
+              your route. Interests only bias the mix.
+            </p>
           </div>
 
           {formError ? (
@@ -559,7 +490,11 @@ export function PlanningPage() {
               onClick={() => {
                 setStart(null);
                 setEnd(null);
-                setWishlist([]);
+                setDays(3);
+                setNights(2);
+                setHoursPerDay(8);
+                setNightsTouched(false);
+                setInterests([]);
                 setFormError(null);
               }}
               className="rounded-xl px-4 py-2.5 text-sm font-medium text-stone transition hover:bg-mist hover:text-forest"
@@ -584,8 +519,8 @@ export function PlanningPage() {
               <h2 className="text-sm font-semibold text-ink">Live map</h2>
               <p className="text-xs text-stone">
                 {mapMarkers.length === 0
-                  ? "Pick start, places, and end to preview pins."
-                  : `${mapMarkers.length} pins · final order set after generate`}
+                  ? "Pick start and end to preview pins."
+                  : `${mapMarkers.length} pins · stops chosen after generate`}
               </p>
             </div>
             <MalaysiaMap

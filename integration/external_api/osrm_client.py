@@ -29,10 +29,11 @@ class OsrmClient:
         b: tuple[float, float],
         *,
         profile: str = "driving",
+        geometry: bool = False,
     ) -> dict[str, Any] | None:
-        """Return {distance_km, duration_min, geometry?} or None on failure.
+        """Return {distance_km, duration_min, path?} or None on failure.
 
-        Coordinates are (lat, lng).
+        Coordinates are (lat, lng). path is [[lat, lng], ...] when geometry=True.
         """
         lat1, lng1 = a
         lat2, lng2 = b
@@ -40,7 +41,11 @@ class OsrmClient:
             f"{self._base_url}/route/v1/{profile}/"
             f"{lng1},{lat1};{lng2},{lat2}"
         )
-        params = {"overview": "false", "alternatives": "false"}
+        params = {
+            "overview": "full" if geometry else "false",
+            "alternatives": "false",
+            "geometries": "geojson",
+        }
         try:
             response = requests.get(url, params=params, timeout=self._timeout)
             response.raise_for_status()
@@ -48,11 +53,17 @@ class OsrmClient:
             if payload.get("code") != "Ok" or not payload.get("routes"):
                 return None
             route = payload["routes"][0]
-            return {
+            result: dict[str, Any] = {
                 "distance_km": round(float(route["distance"]) / 1000.0, 2),
                 "duration_min": max(1, int(round(float(route["duration"]) / 60.0))),
                 "is_estimated": False,
             }
+            if geometry:
+                coords = (route.get("geometry") or {}).get("coordinates") or []
+                result["path"] = [
+                    [float(lat), float(lng)] for lng, lat in coords
+                ]
+            return result
         except Exception as exc:
             logger.warning("OSRM route failed: %s", exc)
             return None
@@ -66,11 +77,14 @@ class OsrmClient:
     ) -> dict[str, Any]:
         """Fallback straight-line estimate when OSRM is unavailable."""
         distance_km = self.haversine_km(a, b)
-        duration_min = max(1, int(round((distance_km / max(speed_kmh, 1.0)) * 60.0)))
+        # Road distance is typically longer than crow-flies.
+        road_km = distance_km * 1.35
+        duration_min = max(1, int(round((road_km / max(speed_kmh, 1.0)) * 60.0)))
         return {
-            "distance_km": round(distance_km, 2),
+            "distance_km": round(road_km, 2),
             "duration_min": duration_min,
             "is_estimated": True,
+            "path": [[a[0], a[1]], [b[0], b[1]]],
         }
 
     @staticmethod
@@ -86,4 +100,3 @@ class OsrmClient:
             + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
         )
         return 2 * r * math.asin(math.sqrt(h))
-

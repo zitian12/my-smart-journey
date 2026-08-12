@@ -130,7 +130,7 @@ export function MalaysiaMap({
       {route && route.length >= 2 ? (
         <Polyline
           positions={route}
-          pathOptions={{ color: "#2d6a4f", weight: 4, opacity: 0.85 }}
+          pathOptions={{ color: "#2563eb", weight: 4, opacity: 0.9 }}
         />
       ) : null}
       {points.map((point, index) => {

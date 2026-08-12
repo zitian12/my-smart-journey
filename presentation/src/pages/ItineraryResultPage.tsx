@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { MalaysiaMap, type MapMarker } from "../components/MalaysiaMap";
 import type {
@@ -24,6 +24,55 @@ function formatMinutes(minutes: number): string {
   return m ? `${h}h ${m}m` : `${h}h`;
 }
 
+function pathFromLegs(
+  legs: { path?: number[][] }[],
+): Array<[number, number]> | undefined {
+  const points: Array<[number, number]> = [];
+  for (const leg of legs) {
+    const path = leg.path;
+    if (!Array.isArray(path) || path.length < 2) continue;
+    for (const pt of path) {
+      if (
+        Array.isArray(pt) &&
+        pt.length >= 2 &&
+        typeof pt[0] === "number" &&
+        typeof pt[1] === "number"
+      ) {
+        points.push([pt[0], pt[1]]);
+      }
+    }
+  }
+  // Real road geometry has many vertices; 2 points/leg is still a straight line.
+  if (points.length >= 2 && points.length > legs.length * 2) {
+    return points;
+  }
+  return undefined;
+}
+
+async function fetchDrivingPath(
+  from: [number, number],
+  to: [number, number],
+): Promise<Array<[number, number]>> {
+  const url =
+    `https://router.project-osrm.org/route/v1/driving/` +
+    `${from[1]},${from[0]};${to[1]},${to[0]}` +
+    `?overview=full&geometries=geojson&alternatives=false`;
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`OSRM ${response.status}`);
+  }
+  const payload = (await response.json()) as {
+    code?: string;
+    routes?: { geometry?: { coordinates?: number[][] } }[];
+  };
+  if (payload.code !== "Ok" || !payload.routes?.[0]?.geometry?.coordinates) {
+    throw new Error("OSRM route missing");
+  }
+  return payload.routes[0].geometry.coordinates.map(
+    ([lng, lat]) => [lat, lng] as [number, number],
+  );
+}
+
 export function ItineraryResultPage() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -32,6 +81,8 @@ export function ItineraryResultPage() {
 
   const itinerary = state?.itinerary ?? null;
   const places = state?.places ?? [];
+  const [roadRoute, setRoadRoute] = useState<Array<[number, number]> | undefined>();
+  const [routeLoading, setRouteLoading] = useState(false);
 
   const placeById = useMemo(() => {
     const map = new Map<string, PlaceCoords>();
@@ -97,16 +148,59 @@ export function ItineraryResultPage() {
     return ordered;
   }, [itinerary, places, placeById, placeByName]);
 
-  const route = useMemo(() => {
-    if (markers.length < 2) return undefined;
-    return markers.map((m) => [m.lat, m.lng] as [number, number]);
-  }, [markers]);
+  const embeddedRoute = useMemo(() => {
+    if (!itinerary) return undefined;
+    return pathFromLegs(itinerary.legs);
+  }, [itinerary]);
+
+  useEffect(() => {
+    if (!itinerary) {
+      setRoadRoute(undefined);
+      return;
+    }
+    if (embeddedRoute && embeddedRoute.length >= 2) {
+      setRoadRoute(embeddedRoute);
+      return;
+    }
+    if (markers.length < 2) {
+      setRoadRoute(undefined);
+      return;
+    }
+
+    let cancelled = false;
+    async function loadDrivingRoute() {
+      setRouteLoading(true);
+      try {
+        const chunks: Array<[number, number]> = [];
+        for (let i = 0; i < markers.length - 1; i += 1) {
+          const a: [number, number] = [markers[i].lat, markers[i].lng];
+          const b: [number, number] = [markers[i + 1].lat, markers[i + 1].lng];
+          const segment = await fetchDrivingPath(a, b);
+          chunks.push(...segment);
+        }
+        if (!cancelled && chunks.length >= 2) {
+          setRoadRoute(chunks);
+        }
+      } catch {
+        if (!cancelled) {
+          // Last resort: marker order (straight). Prefer empty over misleading.
+          setRoadRoute(undefined);
+        }
+      } finally {
+        if (!cancelled) setRouteLoading(false);
+      }
+    }
+    void loadDrivingRoute();
+    return () => {
+      cancelled = true;
+    };
+  }, [itinerary, embeddedRoute, markers]);
+
+  const route = roadRoute;
 
   const days = useMemo(() => {
     if (!itinerary) return [] as number[];
-    return Array.from(
-      new Set(itinerary.destinations.map((d) => d.day)),
-    ).sort((a, b) => a - b);
+    return Array.from({ length: Math.max(1, itinerary.days) }, (_, i) => i + 1);
   }, [itinerary]);
 
   if (!itinerary) {
@@ -147,9 +241,18 @@ export function ItineraryResultPage() {
               : "s"}{" "}
             · {itinerary.hours_per_day} hrs/day ·{" "}
             {itinerary.destinations.length} stops
+            {itinerary.preferred_mode
+              ? ` · ${itinerary.preferred_mode}`
+              : ""}
           </p>
+          {itinerary.interests.length > 0 ? (
+            <p className="mt-1 text-xs text-stone">
+              Interests: {itinerary.interests.join(", ")}
+            </p>
+          ) : null}
           <p className="mt-1 text-xs text-leaf">
-            Visit order, stay times, and transport modes were chosen automatically.
+            Stops were chosen from the catalog; visit order and driving legs
+            were planned automatically.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -213,19 +316,25 @@ export function ItineraryResultPage() {
                 </div>
 
                 <ol className="space-y-4">
-                  {dayStops.map((stop) => (
-                    <li key={`${day}-${stop.id}`} className="flex gap-3">
-                      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-leaf/15 text-xs font-semibold text-leaf">
-                        {stop.order}
-                      </span>
-                      <div className="min-w-0">
-                        <p className="font-medium text-ink">{stop.name}</p>
-                        <p className="text-xs text-stone">
-                          Stay {formatMinutes(stop.stay_min)}
-                        </p>
-                      </div>
+                  {dayStops.length === 0 ? (
+                    <li className="rounded-xl bg-mist/70 px-3 py-3 text-sm text-stone">
+                      No stops scheduled — catalog or daily hours budget limited.
                     </li>
-                  ))}
+                  ) : (
+                    dayStops.map((stop) => (
+                      <li key={`${day}-${stop.id}`} className="flex gap-3">
+                        <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-leaf/15 text-xs font-semibold text-leaf">
+                          {stop.order}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="font-medium text-ink">{stop.name}</p>
+                          <p className="text-xs text-stone">
+                            Stay {formatMinutes(stop.stay_min)}
+                          </p>
+                        </div>
+                      </li>
+                    ))
+                  )}
                 </ol>
 
                 {dayLegs.length > 0 ? (
@@ -256,31 +365,19 @@ export function ItineraryResultPage() {
               </article>
             );
           })}
-
-          {itinerary.notes.length > 0 ||
-          itinerary.excluded_destinations.length > 0 ? (
-            <aside className="rounded-2xl bg-amber-50/80 p-5 text-sm text-stone ring-1 ring-amber-100">
-              {itinerary.notes.length > 0 ? (
-                <ul className="list-disc space-y-1 pl-5">
-                  {itinerary.notes.map((note) => (
-                    <li key={note}>{note}</li>
-                  ))}
-                </ul>
-              ) : null}
-              {itinerary.excluded_destinations.length > 0 ? (
-                <p className="mt-3">
-                  Excluded: {itinerary.excluded_destinations.join(", ")}
-                </p>
-              ) : null}
-            </aside>
-          ) : null}
         </section>
 
         <aside className="lg:sticky lg:top-6">
           <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-forest/5">
             <div className="border-b border-forest/5 px-4 py-3">
               <h2 className="text-sm font-semibold text-ink">Route map</h2>
-              <p className="text-xs text-stone">OpenStreetMap preview</p>
+              <p className="text-xs text-stone">
+                {routeLoading
+                  ? "Loading driving route…"
+                  : route && route.length > markers.length * 2
+                    ? "Driving route (road network)"
+                    : "OpenStreetMap preview"}
+              </p>
             </div>
             <MalaysiaMap
               markers={markers}

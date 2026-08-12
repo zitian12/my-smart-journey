@@ -10,11 +10,11 @@ export type PlaceInput = {
 export type ItineraryGenerateRequest = {
   start: PlaceInput;
   end: PlaceInput;
-  destinations: PlaceInput[];
-  days?: number | null;
-  hours_per_day?: number | null;
+  days: number;
+  nights: number;
+  hours_per_day: number;
   interests?: string[];
-  nights?: number | null;
+  preferred_mode?: "driving";
 };
 
 export type PlaceRef = {
@@ -28,6 +28,9 @@ export type OrderedDestination = {
   order: number;
   day: number;
   stay_min: number;
+  latitude?: number | null;
+  longitude?: number | null;
+  category_slug?: string | null;
 };
 
 export type TransportOption = {
@@ -48,6 +51,8 @@ export type ItineraryLeg = {
   selected_mode: string;
   day?: number | null;
   steps?: Record<string, unknown>[];
+  /** Driving polyline as [lat, lng][] */
+  path?: number[][];
 };
 
 export type ItineraryTotals = {
@@ -72,6 +77,7 @@ export type ItineraryGenerateResponse = {
   nights?: number;
   hours_per_day: number;
   interests: string[];
+  preferred_mode?: string;
   destinations: OrderedDestination[];
   legs: ItineraryLeg[];
   totals: ItineraryTotals;
