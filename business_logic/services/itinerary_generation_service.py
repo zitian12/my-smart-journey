@@ -9,6 +9,7 @@ from typing import Any
 
 from integration.external_api import OrsClient, OsrmClient
 from services.carbon_stub_service import CarbonStubService
+from services.sustainability_service import SustainabilityService
 
 _DEFAULT_STAY_MIN = 90
 _DEFAULT_HOURS_PER_DAY = 8
@@ -70,6 +71,7 @@ class ItineraryGenerationService:
         ors_client: OrsClient | None = None,
     ) -> None:
         self._carbon = carbon_service or CarbonStubService()
+        self._sustainability = SustainabilityService()
         self._osrm = osrm_client or OsrmClient()
         self._ors = ors_client or _SHARED_ORS
         self._route_cache: dict[tuple[str, float, float, float, float], dict[str, Any]] = {}
@@ -243,6 +245,7 @@ class ItineraryGenerationService:
             "day_totals": day_totals,
             "excluded_destinations": excluded,
             "notes": notes,
+            "sustainability": self._sustainability.evaluate_legs(legs),
         }
 
     def recompute(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -399,6 +402,7 @@ class ItineraryGenerationService:
             "day_totals": day_totals,
             "excluded_destinations": [],
             "notes": notes,
+            "sustainability": self._sustainability.evaluate_legs(legs),
         }
 
     def _apply_user_days(

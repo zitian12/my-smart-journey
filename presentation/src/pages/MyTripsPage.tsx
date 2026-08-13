@@ -131,6 +131,7 @@ type TripCardProps = {
   trip: SavedItinerarySummary;
   busy: boolean;
   onOpen: (trip: SavedItinerarySummary) => void;
+  onViewEcoScore: (trip: SavedItinerarySummary) => void;
   onToggleFavourite: (trip: SavedItinerarySummary) => void;
   onDelete: (trip: SavedItinerarySummary) => void;
 };
@@ -139,6 +140,7 @@ function TripCard({
   trip,
   busy,
   onOpen,
+  onViewEcoScore,
   onToggleFavourite,
   onDelete,
 }: TripCardProps) {
@@ -173,10 +175,16 @@ function TripCard({
             >
               {statusLabel}
             </span>
-            <span className="inline-flex items-center gap-1 rounded-full bg-leaf/10 px-2.5 py-0.5 text-xs font-semibold text-leaf">
+            <button
+              type="button"
+              onClick={() => onViewEcoScore(trip)}
+              disabled={busy}
+              className="inline-flex items-center gap-1 rounded-full bg-leaf/10 px-2.5 py-0.5 text-xs font-semibold text-leaf transition hover:bg-leaf/20 disabled:opacity-50"
+              aria-label={`View eco score ${trip.eco_score}`}
+            >
               <IconLeaf />
               {trip.eco_score}
-            </span>
+            </button>
           </div>
 
           <div className="flex items-center gap-1">
@@ -491,6 +499,9 @@ export function MyTripsPage() {
                 trip={trip}
                 busy={busyId === trip.id}
                 onOpen={(item) => void onOpen(item)}
+                onViewEcoScore={(item) =>
+                  navigate(`/dashboard/eco-score?trip=${item.id}`)
+                }
                 onToggleFavourite={(item) => void onToggleFavourite(item)}
                 onDelete={(item) => void onDelete(item)}
               />

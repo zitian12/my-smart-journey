@@ -6,15 +6,36 @@ from datetime import datetime
 
 from database.models.itinerary import SavedItinerary
 from integration.repositories import ItineraryRepository
+from services.sustainability_service import SustainabilityService
 
 FALLBACK_IMAGE = (
     "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=600&q=80"
 )
 
+_sustainability = SustainabilityService()
 
-def derive_eco_score(carbon_kg: float) -> int:
-    """Map trip carbon to a 0–100 eco score (lower carbon → higher score)."""
-    return max(0, min(100, int(round(100 - float(carbon_kg)))))
+
+def ensure_sustainability(itinerary: dict) -> dict:
+    """Return itinerary with a sustainability payload (compute if missing)."""
+    if not isinstance(itinerary, dict):
+        return {}
+    out = dict(itinerary)
+    existing = out.get("sustainability")
+    if isinstance(existing, dict) and existing.get("score") is not None:
+        return out
+    out["sustainability"] = _sustainability.evaluate_legs(out.get("legs") or [])
+    return out
+
+
+def derive_eco_score(itinerary: dict) -> int:
+    """Map sustainability score (reduction %) to a 0–100 integer for cards."""
+    payload = ensure_sustainability(itinerary)
+    sustainability = payload.get("sustainability") or {}
+    try:
+        score = float(sustainability.get("score") or 0)
+    except (TypeError, ValueError):
+        score = 0.0
+    return max(0, min(100, int(round(score))))
 
 
 def _format_date(created_at: str | datetime | None) -> str:
@@ -65,6 +86,10 @@ def _location_label(itinerary: dict, places: list[dict]) -> str:
 
 def to_summary(doc: dict) -> dict:
     """Map a repository document to list-card fields."""
+    itinerary = doc.get("itinerary") or {}
+    payload = ensure_sustainability(itinerary) if itinerary else {}
+    sustainability = payload.get("sustainability") or {}
+    eco_score = derive_eco_score(itinerary) if itinerary else int(doc.get("eco_score") or 0)
     return {
         "id": doc["id"],
         "name": doc.get("name") or "",
@@ -76,7 +101,11 @@ def to_summary(doc: dict) -> dict:
         "nights": int(doc.get("nights") or 0),
         "travelers": int(doc.get("travelers") or 1),
         "hours_per_day": int(doc.get("hours_per_day") or 8),
-        "eco_score": int(doc.get("eco_score") or 80),
+        "eco_score": eco_score,
+        "carbon_kg": float(sustainability.get("total_footprint_kg") or 0),
+        "baseline_footprint_kg": float(sustainability.get("baseline_footprint_kg") or 0),
+        "emissions_reduced_kg": float(sustainability.get("emissions_reduced_kg") or 0),
+        "reduction_percent": float(sustainability.get("reduction_percent") or 0),
         "status": doc.get("status") or "upcoming",
         "image": doc.get("image") or FALLBACK_IMAGE,
         "is_favourite": bool(doc.get("is_favourite", False)),
@@ -87,8 +116,10 @@ def to_summary(doc: dict) -> dict:
 def to_detail(doc: dict) -> dict:
     """Map a repository document to detail + snapshot payload."""
     summary = to_summary(doc)
-    summary["itinerary"] = doc.get("itinerary") or {}
+    itinerary = ensure_sustainability(doc.get("itinerary") or {})
+    summary["itinerary"] = itinerary
     summary["places"] = doc.get("places") or []
+    summary["eco_score"] = derive_eco_score(itinerary)
     return summary
 
 
@@ -111,8 +142,7 @@ class ItineraryPersistenceService:
         end = str(itinerary.get("end_location") or "").strip() or "End"
         trip_name = (name or "").strip() or f"{start} → {end}"
 
-        totals = itinerary.get("totals") or {}
-        carbon = float(totals.get("carbon_kg") or 0)
+        itinerary = ensure_sustainability(itinerary)
 
         document = SavedItinerary(
             user_id=user_id,
@@ -124,7 +154,7 @@ class ItineraryPersistenceService:
             nights=int(itinerary.get("nights") or max(0, int(itinerary.get("days") or 1) - 1)),
             hours_per_day=int(itinerary.get("hours_per_day") or 8),
             travelers=travelers,
-            eco_score=derive_eco_score(carbon),
+            eco_score=derive_eco_score(itinerary),
             status="upcoming",
             image=_cover_image(places),
             is_favourite=False,

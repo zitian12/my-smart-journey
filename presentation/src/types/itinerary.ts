@@ -89,6 +89,40 @@ export type DayTotal = {
   duration_min: number;
 };
 
+export type SustainabilityRating = "excellent" | "good" | "moderate" | "low";
+
+export type SustainabilityModeBreakdown = {
+  mode: string;
+  carbon_kg: number;
+  distance_km: number;
+  share_percent: number;
+};
+
+export type SustainabilityLegBreakdown = {
+  index: number;
+  from_name: string;
+  to: string;
+  day: number;
+  distance_km: number;
+  carbon_kg: number;
+  mode: string;
+};
+
+export type SustainabilitySummary = {
+  score: number;
+  rating: SustainabilityRating | string;
+  total_footprint_kg: number;
+  baseline_footprint_kg: number;
+  emissions_reduced_kg: number;
+  reduction_percent: number;
+  distance_km: number;
+  modes_used: string[];
+  breakdown_by_mode: SustainabilityModeBreakdown[];
+  breakdown_by_leg: SustainabilityLegBreakdown[];
+  impact_text: string;
+  has_transport_data: boolean;
+};
+
 export type ItineraryGenerateResponse = {
   start_location: string;
   end_location: string;
@@ -103,6 +137,7 @@ export type ItineraryGenerateResponse = {
   day_totals: DayTotal[];
   excluded_destinations: string[];
   notes: string[];
+  sustainability?: SustainabilitySummary | null;
 };
 
 export type PlaceCoords = {
@@ -134,6 +169,10 @@ export type SavedItinerarySummary = {
   travelers: number;
   hours_per_day: number;
   eco_score: number;
+  carbon_kg?: number;
+  baseline_footprint_kg?: number;
+  emissions_reduced_kg?: number;
+  reduction_percent?: number;
   status: TripStatus;
   image: string;
   is_favourite: boolean;
