@@ -15,6 +15,7 @@ from database.connection import verify_connection
 from integration.repositories import (
     DestinationCategoryRepository,
     DestinationRepository,
+    ItineraryRepository,
     UserRepository,
 )
 from routers import api_router
@@ -53,6 +54,9 @@ async def startup() -> None:
 
     destination_repository = DestinationRepository()
     await destination_repository.ensure_indexes()
+
+    itinerary_repository = ItineraryRepository()
+    await itinerary_repository.ensure_indexes()
 
 
 @app.get("/")

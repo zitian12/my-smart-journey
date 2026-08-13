@@ -2,9 +2,29 @@ import type {
   ItineraryGenerateRequest,
   ItineraryGenerateResponse,
   ItineraryRecomputeRequest,
+  ItinerarySaveRequest,
+  SavedItineraryDetail,
+  SavedItinerarySummary,
 } from "../types/itinerary";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+
+export class ItineraryApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ItineraryApiError";
+    this.status = status;
+  }
+}
+
+function authHeaders(token: string): HeadersInit {
+  return {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+  };
+}
 
 async function readError(response: Response, fallback: string): Promise<string> {
   const error = await response.json().catch(() => ({ detail: fallback }));
@@ -25,6 +45,11 @@ async function readError(response: Response, fallback: string): Promise<string> 
     }
   }
   return fallback;
+}
+
+async function ensureOk(response: Response, fallback: string): Promise<void> {
+  if (response.ok) return;
+  throw new ItineraryApiError(await readError(response, fallback), response.status);
 }
 
 export async function generateItinerary(
@@ -59,3 +84,69 @@ export async function recomputeItinerary(
   return response.json();
 }
 
+export async function saveItinerary(
+  token: string,
+  payload: ItinerarySaveRequest,
+): Promise<SavedItineraryDetail> {
+  const response = await fetch(`${API_URL}/api/itineraries`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify(payload),
+  });
+
+  await ensureOk(response, "Failed to save itinerary");
+  return response.json();
+}
+
+export async function listItineraries(
+  token: string,
+): Promise<SavedItinerarySummary[]> {
+  const response = await fetch(`${API_URL}/api/itineraries`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  await ensureOk(response, "Failed to load trips");
+  return response.json();
+}
+
+export async function getItinerary(
+  token: string,
+  itineraryId: string,
+): Promise<SavedItineraryDetail> {
+  const response = await fetch(`${API_URL}/api/itineraries/${itineraryId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  await ensureOk(response, "Failed to load trip");
+  return response.json();
+}
+
+export async function deleteItinerary(
+  token: string,
+  itineraryId: string,
+): Promise<void> {
+  const response = await fetch(`${API_URL}/api/itineraries/${itineraryId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  await ensureOk(response, "Failed to delete trip");
+}
+
+export async function setItineraryFavourite(
+  token: string,
+  itineraryId: string,
+  isFavourite: boolean,
+): Promise<SavedItinerarySummary> {
+  const response = await fetch(
+    `${API_URL}/api/itineraries/${itineraryId}/favourite`,
+    {
+      method: "PATCH",
+      headers: authHeaders(token),
+      body: JSON.stringify({ is_favourite: isFavourite }),
+    },
+  );
+
+  await ensureOk(response, "Failed to update favourite");
+  return response.json();
+}

@@ -2,6 +2,7 @@
 
 from .destination import Destination
 from .destination_category import DestinationCategory
+from .itinerary import SavedItinerary
 from .user import User
 
-__all__ = ["User", "Destination", "DestinationCategory"]
+__all__ = ["User", "Destination", "DestinationCategory", "SavedItinerary"]

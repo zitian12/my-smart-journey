@@ -153,3 +153,55 @@ class ItineraryGenerateResponse(BaseModel):
     day_totals: list[DayTotal] = Field(default_factory=list)
     excluded_destinations: list[str] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
+
+
+class PlaceCoordsInput(BaseModel):
+    """Place coordinates snapshot used when reopening a saved trip."""
+
+    id: str
+    name: str
+    latitude: float
+    longitude: float
+    image: str | None = None
+    category_slug: str | None = None
+    state: str | None = None
+
+
+class ItinerarySaveRequest(BaseModel):
+    """Persist the current itinerary result snapshot for the signed-in user."""
+
+    name: str | None = Field(default=None, max_length=120)
+    itinerary: ItineraryGenerateResponse
+    places: list[PlaceCoordsInput] = Field(default_factory=list)
+    travelers: int = Field(default=1, ge=1, le=20)
+
+
+class SavedItinerarySummary(BaseModel):
+    """Card fields for My Trips list."""
+
+    id: str
+    name: str
+    start_point: str
+    end_point: str
+    location: str
+    date: str
+    days: int
+    nights: int
+    travelers: int
+    hours_per_day: int
+    eco_score: int
+    status: Literal["upcoming", "completed"]
+    image: str
+    is_favourite: bool
+    created_at: str | None = None
+
+
+class SavedItineraryDetail(SavedItinerarySummary):
+    """Full snapshot for reopening on the result page."""
+
+    itinerary: ItineraryGenerateResponse
+    places: list[PlaceCoordsInput] = Field(default_factory=list)
+
+
+class FavouriteUpdateRequest(BaseModel):
+    is_favourite: bool

@@ -120,4 +120,36 @@ export type ItineraryResultState = {
   places: PlaceCoords[];
 };
 
+export type TripStatus = "upcoming" | "completed";
+
+export type SavedItinerarySummary = {
+  id: string;
+  name: string;
+  start_point: string;
+  end_point: string;
+  location: string;
+  date: string;
+  days: number;
+  nights: number;
+  travelers: number;
+  hours_per_day: number;
+  eco_score: number;
+  status: TripStatus;
+  image: string;
+  is_favourite: boolean;
+  created_at?: string | null;
+};
+
+export type SavedItineraryDetail = SavedItinerarySummary & {
+  itinerary: ItineraryGenerateResponse;
+  places: PlaceCoords[];
+};
+
+export type ItinerarySaveRequest = {
+  name?: string | null;
+  itinerary: ItineraryGenerateResponse;
+  places: PlaceCoords[];
+  travelers?: number;
+};
+
 export const ITINERARY_RESULT_STORAGE_KEY = "msj.itinerary.result";

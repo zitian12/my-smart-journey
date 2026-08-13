@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { DestinationImage } from "../components/DestinationImage";
 import { MalaysiaMap, type MapMarker } from "../components/MalaysiaMap";
+import { useAuth } from "../context/AuthContext";
 import { fetchDestinations } from "../services/destinationApi";
-import { recomputeItinerary } from "../services/itineraryApi";
+import { recomputeItinerary, saveItinerary } from "../services/itineraryApi";
 import type { Destination } from "../types/destination";
 import type {
   ItineraryGenerateResponse,
@@ -280,6 +281,7 @@ function AddStopPicker({
 export function ItineraryResultPage() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { isAuthenticated, getAccessToken } = useAuth();
   const initial =
     (location.state as ItineraryResultState | null) ?? loadStoredResult();
 
@@ -291,6 +293,11 @@ export function ItineraryResultPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [roadRoute, setRoadRoute] = useState<Array<[number, number]> | undefined>();
   const [routeLoading, setRouteLoading] = useState(false);
+  const [saveBusy, setSaveBusy] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [namingOpen, setNamingOpen] = useState(false);
+  const [tripName, setTripName] = useState("");
 
   const placeById = useMemo(() => {
     const map = new Map<string, PlaceCoords>();
@@ -541,6 +548,53 @@ export function ItineraryResultPage() {
     });
   };
 
+  const defaultTripName = itinerary
+    ? `${itinerary.start_location} → ${itinerary.end_location}`
+    : "";
+
+  const openSaveDialog = () => {
+    setSaveError(null);
+    setSaveSuccess(false);
+    if (!isAuthenticated) {
+      setSaveError("Please sign in from the sidebar to save this trip.");
+      return;
+    }
+    setTripName(defaultTripName);
+    setNamingOpen(true);
+  };
+
+  const onConfirmSave = async () => {
+    if (!itinerary || saveBusy) return;
+    const token = getAccessToken();
+    if (!token) {
+      setSaveError("Please sign in from the sidebar to save this trip.");
+      setNamingOpen(false);
+      return;
+    }
+
+    setSaveBusy(true);
+    setSaveError(null);
+    setSaveSuccess(false);
+    try {
+      await saveItinerary(token, {
+        name: tripName.trim() || defaultTripName,
+        itinerary: {
+          ...itinerary,
+          nights: itinerary.nights ?? Math.max(0, itinerary.days - 1),
+        },
+        places,
+      });
+      setNamingOpen(false);
+      setSaveSuccess(true);
+    } catch (err) {
+      setSaveError(
+        err instanceof Error ? err.message : "Failed to save itinerary",
+      );
+    } finally {
+      setSaveBusy(false);
+    }
+  };
+
   if (!itinerary) {
     return (
       <div className="mx-auto max-w-xl animate-fade-up rounded-2xl bg-white p-8 text-center shadow-sm ring-1 ring-forest/5">
@@ -595,6 +649,21 @@ export function ItineraryResultPage() {
           {actionError ? (
             <p className="mt-2 text-sm text-red-700">{actionError}</p>
           ) : null}
+          {saveError ? (
+            <p className="mt-2 text-sm text-red-700">{saveError}</p>
+          ) : null}
+          {saveSuccess ? (
+            <p className="mt-2 text-sm text-leaf">
+              Trip saved.{" "}
+              <button
+                type="button"
+                onClick={() => navigate("/dashboard/my-trips")}
+                className="font-semibold underline underline-offset-2"
+              >
+                View My Trips
+              </button>
+            </p>
+          ) : null}
           {busy ? (
             <p className="mt-2 text-xs text-stone">Updating itinerary…</p>
           ) : null}
@@ -607,6 +676,14 @@ export function ItineraryResultPage() {
           ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={openSaveDialog}
+            disabled={saveBusy || busy}
+            className="rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {saveBusy ? "Saving…" : "Save trip"}
+          </button>
           <button
             type="button"
             onClick={() => navigate("/dashboard/planning")}
@@ -623,6 +700,45 @@ export function ItineraryResultPage() {
           </button>
         </div>
       </header>
+
+      {namingOpen ? (
+        <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-forest/10 sm:p-6">
+          <h2 className="text-base font-semibold text-ink">Save this trip</h2>
+          <p className="mt-1 text-sm text-stone">
+            Give it a name so you can find it in My Trips.
+          </p>
+          <label className="mt-4 block text-sm font-medium text-forest">
+            Trip name
+            <input
+              type="text"
+              value={tripName}
+              onChange={(e) => setTripName(e.target.value)}
+              maxLength={120}
+              disabled={saveBusy}
+              className="mt-1.5 w-full rounded-xl border border-forest/10 bg-mist/40 px-3 py-2.5 text-sm text-ink outline-none ring-forest/20 focus:ring-2"
+              placeholder={defaultTripName}
+            />
+          </label>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void onConfirmSave()}
+              disabled={saveBusy}
+              className="rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-600 disabled:opacity-60"
+            >
+              {saveBusy ? "Saving…" : "Confirm save"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setNamingOpen(false)}
+              disabled={saveBusy}
+              className="rounded-xl px-4 py-2.5 text-sm font-medium text-stone ring-1 ring-forest/10 transition hover:bg-mist"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Stat

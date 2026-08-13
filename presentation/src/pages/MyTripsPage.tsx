@@ -1,6 +1,14 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { DUMMY_TRIPS, type DummyTrip } from "../data/tripsDummy";
+import { useAuth } from "../context/AuthContext";
+import {
+  deleteItinerary,
+  getItinerary,
+  listItineraries,
+  setItineraryFavourite,
+} from "../services/itineraryApi";
+import type { SavedItinerarySummary } from "../types/itinerary";
+import { ITINERARY_RESULT_STORAGE_KEY } from "../types/itinerary";
 
 type FilterMode = "all" | "favourites";
 
@@ -12,9 +20,15 @@ function IconSparkle() {
   );
 }
 
-function IconHeart() {
+function IconHeart({ filled }: { filled?: boolean }) {
   return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+    <svg
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill={filled ? "currentColor" : "none"}
+      stroke="currentColor"
+      strokeWidth="1.8"
+    >
       <path
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -113,19 +127,38 @@ function IconRouteEnd() {
   );
 }
 
-function TripCard({ trip }: { trip: DummyTrip }) {
+type TripCardProps = {
+  trip: SavedItinerarySummary;
+  busy: boolean;
+  onOpen: (trip: SavedItinerarySummary) => void;
+  onToggleFavourite: (trip: SavedItinerarySummary) => void;
+  onDelete: (trip: SavedItinerarySummary) => void;
+};
+
+function TripCard({
+  trip,
+  busy,
+  onOpen,
+  onToggleFavourite,
+  onDelete,
+}: TripCardProps) {
   const statusLabel = trip.status === "upcoming" ? "Upcoming" : "Completed";
 
   return (
     <article className="flex gap-4 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-forest/5 sm:gap-5 sm:p-5">
-      <div className="h-28 w-28 shrink-0 overflow-hidden rounded-xl sm:h-32 sm:w-36">
+      <button
+        type="button"
+        onClick={() => onOpen(trip)}
+        disabled={busy}
+        className="h-28 w-28 shrink-0 overflow-hidden rounded-xl sm:h-32 sm:w-36"
+      >
         <img
           src={trip.image}
           alt={trip.name}
           loading="lazy"
           className="h-full w-full object-cover"
         />
-      </div>
+      </button>
 
       <div className="min-w-0 flex-1 space-y-2">
         <div className="flex flex-wrap items-start justify-between gap-2">
@@ -142,7 +175,7 @@ function TripCard({ trip }: { trip: DummyTrip }) {
             </span>
             <span className="inline-flex items-center gap-1 rounded-full bg-leaf/10 px-2.5 py-0.5 text-xs font-semibold text-leaf">
               <IconLeaf />
-              {trip.ecoScore}
+              {trip.eco_score}
             </span>
           </div>
 
@@ -150,13 +183,22 @@ function TripCard({ trip }: { trip: DummyTrip }) {
             <button
               type="button"
               aria-label="Favourite"
-              className="rounded-lg p-1.5 text-stone transition hover:bg-mist hover:text-forest"
+              disabled={busy}
+              onClick={() => onToggleFavourite(trip)}
+              className={[
+                "rounded-lg p-1.5 transition hover:bg-mist",
+                trip.is_favourite
+                  ? "text-red-500 hover:text-red-600"
+                  : "text-stone hover:text-forest",
+              ].join(" ")}
             >
-              <IconHeart />
+              <IconHeart filled={trip.is_favourite} />
             </button>
             <button
               type="button"
-              aria-label="Edit trip"
+              aria-label="Open trip"
+              disabled={busy}
+              onClick={() => onOpen(trip)}
               className="rounded-lg p-1.5 text-stone transition hover:bg-mist hover:text-forest"
             >
               <IconEdit />
@@ -164,6 +206,8 @@ function TripCard({ trip }: { trip: DummyTrip }) {
             <button
               type="button"
               aria-label="Delete trip"
+              disabled={busy}
+              onClick={() => onDelete(trip)}
               className="rounded-lg p-1.5 text-red-400 transition hover:bg-red-50 hover:text-red-500"
             >
               <IconTrash />
@@ -171,17 +215,26 @@ function TripCard({ trip }: { trip: DummyTrip }) {
           </div>
         </div>
 
-        <h2 className="text-lg font-semibold text-ink sm:text-xl">{trip.name}</h2>
+        <button
+          type="button"
+          onClick={() => onOpen(trip)}
+          disabled={busy}
+          className="text-left"
+        >
+          <h2 className="text-lg font-semibold text-ink sm:text-xl">{trip.name}</h2>
+        </button>
 
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-stone">
           <span className="inline-flex items-center gap-1">
             <IconRouteStart />
-            {trip.startPoint}
+            {trip.start_point}
           </span>
-          <span className="text-stone/50" aria-hidden>→</span>
+          <span className="text-stone/50" aria-hidden>
+            →
+          </span>
           <span className="inline-flex items-center gap-1">
             <IconRouteEnd />
-            {trip.endPoint}
+            {trip.end_point}
           </span>
         </div>
 
@@ -205,7 +258,7 @@ function TripCard({ trip }: { trip: DummyTrip }) {
           </span>
           <span className="inline-flex items-center gap-1.5">
             <IconSun />
-            {trip.hoursPerDay}h/day
+            {trip.hours_per_day}h/day
           </span>
         </div>
       </div>
@@ -215,7 +268,12 @@ function TripCard({ trip }: { trip: DummyTrip }) {
 
 export function MyTripsPage() {
   const navigate = useNavigate();
+  const { isAuthenticated, getAccessToken } = useAuth();
   const [filter, setFilter] = useState<FilterMode>("all");
+  const [trips, setTrips] = useState<SavedItinerarySummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const todayLabel = useMemo(
     () =>
@@ -228,13 +286,127 @@ export function MyTripsPage() {
     [],
   );
 
+  const loadTrips = useCallback(async () => {
+    const token = getAccessToken();
+    if (!token) {
+      setTrips([]);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await listItineraries(token);
+      setTrips(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load trips");
+      setTrips([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [getAccessToken]);
+
+  useEffect(() => {
+    void loadTrips();
+  }, [loadTrips, isAuthenticated]);
+
   const visibleTrips = useMemo(
     () =>
       filter === "all"
-        ? DUMMY_TRIPS
-        : DUMMY_TRIPS.filter((trip) => trip.isFavourite),
-    [filter],
+        ? trips
+        : trips.filter((trip) => trip.is_favourite),
+    [filter, trips],
   );
+
+  const onOpen = async (trip: SavedItinerarySummary) => {
+    const token = getAccessToken();
+    if (!token) {
+      setError("Please sign in to open this trip.");
+      return;
+    }
+    setBusyId(trip.id);
+    setError(null);
+    try {
+      const detail = await getItinerary(token, trip.id);
+      const state = {
+        itinerary: detail.itinerary,
+        places: detail.places,
+      };
+      sessionStorage.setItem(ITINERARY_RESULT_STORAGE_KEY, JSON.stringify(state));
+      navigate("/dashboard/planning/result", { state });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to open trip");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const onToggleFavourite = async (trip: SavedItinerarySummary) => {
+    const token = getAccessToken();
+    if (!token) {
+      setError("Please sign in to update favourites.");
+      return;
+    }
+    setBusyId(trip.id);
+    setError(null);
+    try {
+      const updated = await setItineraryFavourite(
+        token,
+        trip.id,
+        !trip.is_favourite,
+      );
+      setTrips((prev) =>
+        prev.map((item) => (item.id === updated.id ? updated : item)),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update favourite");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const onDelete = async (trip: SavedItinerarySummary) => {
+    if (!window.confirm(`Delete "${trip.name}"? This cannot be undone.`)) {
+      return;
+    }
+    const token = getAccessToken();
+    if (!token) {
+      setError("Please sign in to delete this trip.");
+      return;
+    }
+    setBusyId(trip.id);
+    setError(null);
+    try {
+      await deleteItinerary(token, trip.id);
+      setTrips((prev) => prev.filter((item) => item.id !== trip.id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete trip");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  if (!isAuthenticated) {
+    return (
+      <div className="mx-auto max-w-xl animate-fade-up rounded-2xl bg-white p-8 text-center shadow-sm ring-1 ring-forest/5">
+        <h1 className="font-display text-2xl font-semibold text-forest">
+          My Trips
+        </h1>
+        <p className="mt-2 text-sm text-stone">
+          Sign in from the sidebar to view and manage your saved itineraries.
+        </p>
+        <button
+          type="button"
+          onClick={() => navigate("/dashboard/planning")}
+          className="mt-6 inline-flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600"
+        >
+          <IconSparkle />
+          Plan a Trip
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-5xl animate-fade-up space-y-8">
@@ -260,7 +432,9 @@ export function MyTripsPage() {
           <div>
             <h2 className="text-xl font-semibold text-ink">My Trips</h2>
             <p className="mt-0.5 text-sm text-stone">
-              {DUMMY_TRIPS.length} itineraries saved
+              {loading
+                ? "Loading itineraries…"
+                : `${trips.length} itineraries saved`}
             </p>
           </div>
           <button
@@ -273,10 +447,16 @@ export function MyTripsPage() {
                 : "bg-white text-forest ring-1 ring-forest/10 hover:bg-mist",
             ].join(" ")}
           >
-            <IconHeart />
+            <IconHeart filled={filter === "favourites"} />
             My Favourites
           </button>
         </div>
+
+        {error ? (
+          <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">
+            {error}
+          </p>
+        ) : null}
 
         <div className="flex flex-wrap items-center gap-2">
           <button
@@ -289,7 +469,7 @@ export function MyTripsPage() {
                 : "bg-white text-forest ring-1 ring-forest/10 hover:bg-mist",
             ].join(" ")}
           >
-            All ({DUMMY_TRIPS.length})
+            All ({trips.length})
           </button>
           {filter === "favourites" ? (
             <span className="text-sm text-stone">
@@ -300,11 +480,26 @@ export function MyTripsPage() {
         </div>
 
         <div className="space-y-4">
-          {visibleTrips.length > 0 ? (
-            visibleTrips.map((trip) => <TripCard key={trip.id} trip={trip} />)
+          {loading ? (
+            <p className="rounded-2xl bg-white p-8 text-center text-sm text-stone ring-1 ring-forest/5">
+              Loading your trips…
+            </p>
+          ) : visibleTrips.length > 0 ? (
+            visibleTrips.map((trip) => (
+              <TripCard
+                key={trip.id}
+                trip={trip}
+                busy={busyId === trip.id}
+                onOpen={(item) => void onOpen(item)}
+                onToggleFavourite={(item) => void onToggleFavourite(item)}
+                onDelete={(item) => void onDelete(item)}
+              />
+            ))
           ) : (
             <p className="rounded-2xl bg-white p-8 text-center text-sm text-stone ring-1 ring-forest/5">
-              No favourite trips yet. Mark trips as favourites to see them here.
+              {filter === "favourites"
+                ? "No favourite trips yet. Mark trips as favourites to see them here."
+                : "No saved trips yet. Generate a plan and tap Save trip."}
             </p>
           )}
         </div>
