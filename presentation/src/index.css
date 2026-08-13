@@ -56,3 +56,23 @@ body {
 .leaflet-container {
   font-family: var(--font-sans);
 }
+
+@media print {
+  html,
+  body,
+  #root {
+    height: auto !important;
+    min-height: 0;
+    overflow: visible !important;
+    background: white;
+  }
+
+  body {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .leaflet-container {
+    display: none !important;
+  }
+}

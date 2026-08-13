@@ -10,6 +10,7 @@ from schemas.itinerary import (
     ItineraryGenerateResponse,
     ItineraryRecomputeRequest,
     ItinerarySaveRequest,
+    RenameItineraryRequest,
     SavedItineraryDetail,
     SavedItinerarySummary,
 )
@@ -176,6 +177,29 @@ async def update_itinerary_favourite(
         itinerary_id,
         str(current_user["id"]),
         body.is_favourite,
+    )
+    if updated is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Itinerary not found",
+        )
+    return updated
+
+
+@router.patch(
+    "/api/itineraries/{itinerary_id}",
+    response_model=SavedItinerarySummary,
+)
+async def rename_itinerary(
+    itinerary_id: str,
+    body: RenameItineraryRequest,
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    """Rename an owned itinerary."""
+    updated = await _persistence.rename(
+        itinerary_id,
+        str(current_user["id"]),
+        body.name,
     )
     if updated is None:
         raise HTTPException(

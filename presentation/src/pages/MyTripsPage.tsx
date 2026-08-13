@@ -5,6 +5,7 @@ import {
   deleteItinerary,
   getItinerary,
   listItineraries,
+  renameItinerary,
   setItineraryFavourite,
 } from "../services/itineraryApi";
 import type { SavedItinerarySummary } from "../types/itinerary";
@@ -54,6 +55,18 @@ function IconTrash() {
   return (
     <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
       <path strokeLinecap="round" d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m2 0v12a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V7h10Z" />
+    </svg>
+  );
+}
+
+function IconRename() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M4 20h6l10-10-6-6L4 14v6ZM14 6l4 4"
+      />
     </svg>
   );
 }
@@ -133,8 +146,29 @@ type TripCardProps = {
   onOpen: (trip: SavedItinerarySummary) => void;
   onViewEcoScore: (trip: SavedItinerarySummary) => void;
   onToggleFavourite: (trip: SavedItinerarySummary) => void;
+  onRename: (trip: SavedItinerarySummary) => void;
   onDelete: (trip: SavedItinerarySummary) => void;
 };
+
+function tripDateKey(trip: SavedItinerarySummary): string | null {
+  const raw = trip.created_at;
+  if (!raw) return null;
+  return raw.slice(0, 10);
+}
+
+function matchesDestination(trip: SavedItinerarySummary, query: string): boolean {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return true;
+  const haystack = [
+    trip.location,
+    trip.start_point,
+    trip.end_point,
+    trip.name,
+  ]
+    .join(" ")
+    .toLowerCase();
+  return haystack.includes(needle);
+}
 
 function TripCard({
   trip,
@@ -142,6 +176,7 @@ function TripCard({
   onOpen,
   onViewEcoScore,
   onToggleFavourite,
+  onRename,
   onDelete,
 }: TripCardProps) {
   const statusLabel = trip.status === "upcoming" ? "Upcoming" : "Completed";
@@ -201,6 +236,15 @@ function TripCard({
               ].join(" ")}
             >
               <IconHeart filled={trip.is_favourite} />
+            </button>
+            <button
+              type="button"
+              aria-label="Rename trip"
+              disabled={busy}
+              onClick={() => onRename(trip)}
+              className="rounded-lg p-1.5 text-stone transition hover:bg-mist hover:text-forest"
+            >
+              <IconRename />
             </button>
             <button
               type="button"
@@ -278,10 +322,18 @@ export function MyTripsPage() {
   const navigate = useNavigate();
   const { isAuthenticated, getAccessToken } = useAuth();
   const [filter, setFilter] = useState<FilterMode>("all");
+  const [destinationQuery, setDestinationQuery] = useState("");
+  const [durationDays, setDurationDays] = useState<number | "any">("any");
+  const [createdOn, setCreatedOn] = useState("");
   const [trips, setTrips] = useState<SavedItinerarySummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [renamingTrip, setRenamingTrip] = useState<SavedItinerarySummary | null>(
+    null,
+  );
+  const [renameName, setRenameName] = useState("");
+  const [renameBusy, setRenameBusy] = useState(false);
 
   const todayLabel = useMemo(
     () =>
@@ -319,12 +371,26 @@ export function MyTripsPage() {
     void loadTrips();
   }, [loadTrips, isAuthenticated]);
 
+  const durationOptions = useMemo(() => {
+    const unique = new Set(trips.map((trip) => trip.days));
+    return [...unique].sort((a, b) => a - b);
+  }, [trips]);
+
+  const hasExtraFilters =
+    destinationQuery.trim().length > 0 ||
+    durationDays !== "any" ||
+    createdOn !== "";
+
   const visibleTrips = useMemo(
     () =>
-      filter === "all"
-        ? trips
-        : trips.filter((trip) => trip.is_favourite),
-    [filter, trips],
+      trips.filter((trip) => {
+        if (filter === "favourites" && !trip.is_favourite) return false;
+        if (!matchesDestination(trip, destinationQuery)) return false;
+        if (durationDays !== "any" && trip.days !== durationDays) return false;
+        if (createdOn && tripDateKey(trip) !== createdOn) return false;
+        return true;
+      }),
+    [createdOn, destinationQuery, durationDays, filter, trips],
   );
 
   const onOpen = async (trip: SavedItinerarySummary) => {
@@ -391,6 +457,41 @@ export function MyTripsPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete trip");
     } finally {
+      setBusyId(null);
+    }
+  };
+
+  const openRename = (trip: SavedItinerarySummary) => {
+    setError(null);
+    setRenamingTrip(trip);
+    setRenameName(trip.name);
+  };
+
+  const onConfirmRename = async () => {
+    if (!renamingTrip || renameBusy) return;
+    const nextName = renameName.trim();
+    if (!nextName) {
+      setError("Trip name cannot be empty.");
+      return;
+    }
+    const token = getAccessToken();
+    if (!token) {
+      setError("Please sign in to rename this trip.");
+      return;
+    }
+    setRenameBusy(true);
+    setBusyId(renamingTrip.id);
+    setError(null);
+    try {
+      const updated = await renameItinerary(token, renamingTrip.id, nextName);
+      setTrips((prev) =>
+        prev.map((item) => (item.id === updated.id ? updated : item)),
+      );
+      setRenamingTrip(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to rename trip");
+    } finally {
+      setRenameBusy(false);
       setBusyId(null);
     }
   };
@@ -466,6 +567,85 @@ export function MyTripsPage() {
           </p>
         ) : null}
 
+        {renamingTrip ? (
+          <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-forest/10 sm:p-6">
+            <h3 className="text-base font-semibold text-ink">Rename this trip</h3>
+            <p className="mt-1 text-sm text-stone">
+              Update the name shown in My Trips.
+            </p>
+            <label className="mt-4 block text-sm font-medium text-forest">
+              Trip name
+              <input
+                type="text"
+                value={renameName}
+                onChange={(e) => setRenameName(e.target.value)}
+                maxLength={120}
+                disabled={renameBusy}
+                className="mt-1.5 w-full rounded-xl border border-forest/10 bg-mist/40 px-3 py-2.5 text-sm text-ink outline-none ring-forest/20 focus:ring-2"
+              />
+            </label>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => void onConfirmRename()}
+                disabled={renameBusy || !renameName.trim()}
+                className="rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {renameBusy ? "Saving…" : "Confirm rename"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setRenamingTrip(null)}
+                disabled={renameBusy}
+                className="rounded-xl px-4 py-2.5 text-sm font-medium text-stone ring-1 ring-forest/10 transition hover:bg-mist"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="flex flex-wrap items-end gap-3 rounded-2xl bg-white p-4 ring-1 ring-forest/5">
+          <label className="min-w-[12rem] flex-1 text-xs font-medium text-forest">
+            Destination
+            <input
+              type="search"
+              value={destinationQuery}
+              onChange={(e) => setDestinationQuery(e.target.value)}
+              placeholder="Search place, start, or end"
+              className="mt-1.5 w-full rounded-xl border border-forest/10 bg-mist/40 px-3 py-2 text-sm text-ink outline-none ring-forest/20 focus:ring-2"
+            />
+          </label>
+          <label className="text-xs font-medium text-forest">
+            Duration
+            <select
+              value={durationDays === "any" ? "any" : String(durationDays)}
+              onChange={(e) =>
+                setDurationDays(
+                  e.target.value === "any" ? "any" : Number(e.target.value),
+                )
+              }
+              className="mt-1.5 block rounded-xl border border-forest/10 bg-mist/40 px-3 py-2 text-sm text-ink outline-none ring-forest/20 focus:ring-2"
+            >
+              <option value="any">Any</option>
+              {durationOptions.map((days) => (
+                <option key={days} value={days}>
+                  {days} day{days === 1 ? "" : "s"}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-xs font-medium text-forest">
+            Created on
+            <input
+              type="date"
+              value={createdOn}
+              onChange={(e) => setCreatedOn(e.target.value)}
+              className="mt-1.5 block rounded-xl border border-forest/10 bg-mist/40 px-3 py-2 text-sm text-ink outline-none ring-forest/20 focus:ring-2"
+            />
+          </label>
+        </div>
+
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
@@ -479,10 +659,11 @@ export function MyTripsPage() {
           >
             All ({trips.length})
           </button>
-          {filter === "favourites" ? (
+          {filter === "favourites" || hasExtraFilters ? (
             <span className="text-sm text-stone">
-              Showing {visibleTrips.length} favourite
-              {visibleTrips.length === 1 ? "" : "s"}
+              Showing {visibleTrips.length}
+              {filter === "favourites" ? " favourite" : ""}
+              {visibleTrips.length === 1 ? "" : filter === "favourites" ? "s" : ""}
             </span>
           ) : null}
         </div>
@@ -503,14 +684,17 @@ export function MyTripsPage() {
                   navigate(`/dashboard/eco-score?trip=${item.id}`)
                 }
                 onToggleFavourite={(item) => void onToggleFavourite(item)}
+                onRename={openRename}
                 onDelete={(item) => void onDelete(item)}
               />
             ))
           ) : (
             <p className="rounded-2xl bg-white p-8 text-center text-sm text-stone ring-1 ring-forest/5">
-              {filter === "favourites"
-                ? "No favourite trips yet. Mark trips as favourites to see them here."
-                : "No saved trips yet. Generate a plan and tap Save trip."}
+              {trips.length === 0
+                ? "No saved trips yet. Generate a plan and tap Save trip."
+                : filter === "favourites" && !hasExtraFilters
+                  ? "No favourite trips yet. Mark trips as favourites to see them here."
+                  : "No trips match these filters."}
             </p>
           )}
         </div>

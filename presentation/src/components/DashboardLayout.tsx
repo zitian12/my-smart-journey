@@ -24,8 +24,8 @@ export function DashboardLayout() {
   }, [mobileNavOpen]);
 
   return (
-    <div className="flex h-svh overflow-hidden bg-mist">
-      <header className="fixed inset-x-0 top-0 z-30 flex h-14 items-center gap-3 border-b border-leaf/15 bg-white px-4 lg:hidden">
+    <div className="flex h-svh overflow-hidden bg-mist print:h-auto print:overflow-visible print:bg-white">
+      <header className="fixed inset-x-0 top-0 z-30 flex h-14 items-center gap-3 border-b border-leaf/15 bg-white px-4 print:hidden lg:hidden">
         <button
           type="button"
           onClick={() => setMobileNavOpen(true)}
@@ -49,7 +49,7 @@ export function DashboardLayout() {
       {mobileNavOpen ? (
         <button
           type="button"
-          className="fixed inset-0 z-40 bg-ink/40 lg:hidden"
+          className="fixed inset-0 z-40 bg-ink/40 print:hidden lg:hidden"
           aria-label="Close navigation"
           onClick={() => setMobileNavOpen(false)}
         />
@@ -60,7 +60,7 @@ export function DashboardLayout() {
         onClose={() => setMobileNavOpen(false)}
       />
 
-      <main className="min-w-0 flex-1 overflow-y-auto px-4 pb-8 pt-[calc(3.5rem+1.5rem)] sm:px-6 sm:pb-10 lg:px-8 lg:py-10">
+      <main className="min-w-0 flex-1 overflow-y-auto px-4 pb-8 pt-[calc(3.5rem+1.5rem)] print:overflow-visible print:p-0 sm:px-6 sm:pb-10 lg:px-8 lg:py-10">
         <Outlet />
       </main>
     </div>

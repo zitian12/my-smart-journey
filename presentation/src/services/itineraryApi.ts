@@ -150,3 +150,18 @@ export async function setItineraryFavourite(
   await ensureOk(response, "Failed to update favourite");
   return response.json();
 }
+
+export async function renameItinerary(
+  token: string,
+  itineraryId: string,
+  name: string,
+): Promise<SavedItinerarySummary> {
+  const response = await fetch(`${API_URL}/api/itineraries/${itineraryId}`, {
+    method: "PATCH",
+    headers: authHeaders(token),
+    body: JSON.stringify({ name }),
+  });
+
+  await ensureOk(response, "Failed to rename trip");
+  return response.json();
+}

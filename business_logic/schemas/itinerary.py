@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class PlaceInput(BaseModel):
@@ -242,3 +242,15 @@ class SavedItineraryDetail(SavedItinerarySummary):
 
 class FavouriteUpdateRequest(BaseModel):
     is_favourite: bool
+
+
+class RenameItineraryRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+
+    @field_validator("name")
+    @classmethod
+    def strip_name(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("name cannot be empty")
+        return cleaned

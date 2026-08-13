@@ -54,6 +54,7 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
         "flex h-svh w-64 shrink-0 flex-col border-r border-leaf/15 bg-white",
         "fixed inset-y-0 left-0 z-50 transition-transform duration-200 ease-out",
         "lg:static lg:z-auto lg:translate-x-0",
+        "print:hidden",
         mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
       ].join(" ")}
     >

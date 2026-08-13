@@ -124,7 +124,7 @@ def to_detail(doc: dict) -> dict:
 
 
 class ItineraryPersistenceService:
-    """Create / list / load / favourite / delete saved itineraries."""
+    """Create / list / load / rename / favourite / delete saved itineraries."""
 
     def __init__(self, repository: ItineraryRepository | None = None) -> None:
         self._repo = repository or ItineraryRepository()
@@ -181,6 +181,20 @@ class ItineraryPersistenceService:
         is_favourite: bool,
     ) -> dict | None:
         updated = await self._repo.set_favourite(itinerary_id, user_id, is_favourite)
+        if updated is None:
+            return None
+        return to_summary(updated)
+
+    async def rename(
+        self,
+        itinerary_id: str,
+        user_id: str,
+        name: str,
+    ) -> dict | None:
+        trip_name = name.strip()
+        if not trip_name:
+            return None
+        updated = await self._repo.update_name(itinerary_id, user_id, trip_name)
         if updated is None:
             return None
         return to_summary(updated)

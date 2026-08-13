@@ -105,6 +105,32 @@ class ItineraryRepository:
 
         return await self.get_by_id(itinerary_id)
 
+    async def update_name(
+        self,
+        itinerary_id: str,
+        user_id: str,
+        name: str,
+    ) -> dict | None:
+        """Update the display name of an owned itinerary."""
+        try:
+            object_id = ObjectId(itinerary_id)
+        except InvalidId:
+            return None
+
+        result = await self._collection.update_one(
+            {"_id": object_id, "user_id": user_id},
+            {
+                "$set": {
+                    "name": name,
+                    "updated_at": datetime.now(timezone.utc),
+                }
+            },
+        )
+        if result.matched_count == 0:
+            return None
+
+        return await self.get_by_id(itinerary_id)
+
     @staticmethod
     def _serialize(document: dict | None) -> dict | None:
         if document is None:

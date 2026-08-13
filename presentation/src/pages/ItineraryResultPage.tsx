@@ -648,18 +648,18 @@ export function ItineraryResultPage() {
               Interests: {itinerary.interests.join(", ")}
             </p>
           ) : null}
-          <p className="mt-1 text-xs text-leaf">
+          <p className="mt-1 text-xs text-leaf print:hidden">
             Add, edit stay, or remove stops below. New stops are inserted by
             driving corridor (顺路), not by which day box you used.
           </p>
           {actionError ? (
-            <p className="mt-2 text-sm text-red-700">{actionError}</p>
+            <p className="mt-2 text-sm text-red-700 print:hidden">{actionError}</p>
           ) : null}
           {saveError ? (
-            <p className="mt-2 text-sm text-red-700">{saveError}</p>
+            <p className="mt-2 text-sm text-red-700 print:hidden">{saveError}</p>
           ) : null}
           {saveSuccess ? (
-            <p className="mt-2 text-sm text-leaf">
+            <p className="mt-2 text-sm text-leaf print:hidden">
               Trip saved.{" "}
               <button
                 type="button"
@@ -671,7 +671,7 @@ export function ItineraryResultPage() {
             </p>
           ) : null}
           {busy ? (
-            <p className="mt-2 text-xs text-stone">Updating itinerary…</p>
+            <p className="mt-2 text-xs text-stone print:hidden">Updating itinerary…</p>
           ) : null}
           {itinerary.notes.length > 0 ? (
             <ul className="mt-2 space-y-1 text-xs text-stone">
@@ -681,7 +681,7 @@ export function ItineraryResultPage() {
             </ul>
           ) : null}
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 print:hidden">
           {sustainability ? (
             <button
               type="button"
@@ -694,18 +694,19 @@ export function ItineraryResultPage() {
           ) : null}
           <button
             type="button"
+            onClick={() => window.print()}
+            disabled={busy}
+            className="rounded-xl px-4 py-2.5 text-sm font-medium text-forest ring-1 ring-forest/15 transition hover:bg-white"
+          >
+            Export PDF
+          </button>
+          <button
+            type="button"
             onClick={openSaveDialog}
             disabled={saveBusy || busy}
             className="rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {saveBusy ? "Saving…" : "Save trip"}
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate("/dashboard/planning")}
-            className="rounded-xl px-4 py-2.5 text-sm font-medium text-stone ring-1 ring-forest/10 transition hover:bg-white hover:text-forest"
-          >
-            Adjust places
           </button>
           <button
             type="button"
@@ -718,7 +719,7 @@ export function ItineraryResultPage() {
       </header>
 
       {namingOpen ? (
-        <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-forest/10 sm:p-6">
+        <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-forest/10 print:hidden sm:p-6">
           <h2 className="text-base font-semibold text-ink">Save this trip</h2>
           <p className="mt-1 text-sm text-stone">
             Give it a name so you can find it in My Trips.
@@ -777,7 +778,7 @@ export function ItineraryResultPage() {
           <button
             type="button"
             onClick={() => navigate("/dashboard/eco-score")}
-            className="rounded-2xl bg-white px-4 py-4 text-left shadow-sm ring-1 ring-forest/5 transition hover:ring-leaf/30"
+            className="rounded-2xl bg-white px-4 py-4 text-left shadow-sm ring-1 ring-forest/5 transition hover:ring-leaf/30 print:hidden"
           >
             <p className="text-xs font-medium uppercase tracking-wide text-stone">
               Eco Score
@@ -799,7 +800,7 @@ export function ItineraryResultPage() {
             return (
               <article
                 key={day}
-                className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-forest/5 sm:p-6"
+                className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-forest/5 print:break-inside-avoid sm:p-6"
               >
                 <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
                   <h2 className="font-display text-xl font-semibold text-forest">
@@ -816,7 +817,8 @@ export function ItineraryResultPage() {
                 <ol className="space-y-4">
                   {dayStops.length === 0 ? (
                     <li className="rounded-xl bg-mist/70 px-3 py-3 text-sm text-stone">
-                      No stops yet — add one from the catalog below.
+                      No stops yet
+                      <span className="print:hidden"> — add one from the catalog below.</span>
                     </li>
                   ) : (
                     dayStops.map((stop) => (
@@ -831,12 +833,15 @@ export function ItineraryResultPage() {
                               type="button"
                               disabled={busy}
                               onClick={() => onDeleteStop(stop.id)}
-                              className="rounded-lg px-2 py-1 text-xs font-medium text-red-700 ring-1 ring-red-200 transition hover:bg-red-50 disabled:opacity-50"
+                              className="rounded-lg px-2 py-1 text-xs font-medium text-red-700 ring-1 ring-red-200 transition hover:bg-red-50 disabled:opacity-50 print:hidden"
                             >
                               Remove
                             </button>
                           </div>
-                          <div className="flex flex-wrap gap-2">
+                          <p className="hidden text-xs text-stone print:block">
+                            Stay {formatMinutes(stop.stay_min)} · Day {stop.day}
+                          </p>
+                          <div className="flex flex-wrap gap-2 print:hidden">
                             <label className="flex items-center gap-1.5 text-xs text-stone">
                               Stay
                               <select
@@ -883,11 +888,13 @@ export function ItineraryResultPage() {
                   )}
                 </ol>
 
-                <AddStopPicker
-                  excludeIds={excludeIds}
-                  disabled={busy}
-                  onPick={(place) => onAddStop(place)}
-                />
+                <div className="print:hidden">
+                  <AddStopPicker
+                    excludeIds={excludeIds}
+                    disabled={busy}
+                    onPick={(place) => onAddStop(place)}
+                  />
+                </div>
 
                 {dayLegs.length > 0 ? (
                   <div className="mt-5 space-y-2 border-t border-forest/5 pt-4">
@@ -919,7 +926,7 @@ export function ItineraryResultPage() {
           })}
         </section>
 
-        <aside className="lg:sticky lg:top-6">
+        <aside className="lg:sticky lg:top-6 print:hidden">
           <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-forest/5">
             <div className="border-b border-forest/5 px-4 py-3">
               <h2 className="text-sm font-semibold text-ink">Route map</h2>
