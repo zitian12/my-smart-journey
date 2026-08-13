@@ -15,6 +15,7 @@ import type {
   RecomputeStopInput,
 } from "../types/itinerary";
 import { ITINERARY_RESULT_STORAGE_KEY } from "../types/itinerary";
+import { ratingLabel, resolveSustainability } from "../utils/sustainability";
 
 const STAY_OPTIONS = [30, 60, 90, 120, 150, 180, 240, 360, 480];
 
@@ -298,6 +299,11 @@ export function ItineraryResultPage() {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [namingOpen, setNamingOpen] = useState(false);
   const [tripName, setTripName] = useState("");
+
+  const sustainability = useMemo(
+    () => (itinerary ? resolveSustainability(itinerary) : null),
+    [itinerary],
+  );
 
   const placeById = useMemo(() => {
     const map = new Map<string, PlaceCoords>();
@@ -676,6 +682,16 @@ export function ItineraryResultPage() {
           ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
+          {sustainability ? (
+            <button
+              type="button"
+              onClick={() => navigate("/dashboard/eco-score")}
+              className="rounded-xl bg-leaf px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-forest"
+            >
+              Eco Score {sustainability.score.toFixed(0)} ·{" "}
+              {ratingLabel(String(sustainability.rating))}
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={openSaveDialog}
@@ -740,7 +756,7 @@ export function ItineraryResultPage() {
         </div>
       ) : null}
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <Stat
           label="Duration"
           value={`${itinerary.days}D / ${itinerary.nights ?? Math.max(0, itinerary.days - 1)}N`}
@@ -757,6 +773,21 @@ export function ItineraryResultPage() {
           label="Carbon"
           value={`${itinerary.totals.carbon_kg.toFixed(2)} kg`}
         />
+        {sustainability ? (
+          <button
+            type="button"
+            onClick={() => navigate("/dashboard/eco-score")}
+            className="rounded-2xl bg-white px-4 py-4 text-left shadow-sm ring-1 ring-forest/5 transition hover:ring-leaf/30"
+          >
+            <p className="text-xs font-medium uppercase tracking-wide text-stone">
+              Eco Score
+            </p>
+            <p className="mt-1 text-lg font-semibold text-forest">
+              {sustainability.score.toFixed(0)} ·{" "}
+              {ratingLabel(String(sustainability.rating))}
+            </p>
+          </button>
+        ) : null}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.95fr)] lg:items-start">

@@ -139,6 +139,38 @@ class DayTotal(BaseModel):
     duration_min: int
 
 
+class SustainabilityModeBreakdown(BaseModel):
+    mode: str
+    carbon_kg: float
+    distance_km: float = 0.0
+    share_percent: float
+
+
+class SustainabilityLegBreakdown(BaseModel):
+    index: int
+    from_name: str
+    to: str
+    day: int
+    distance_km: float
+    carbon_kg: float
+    mode: str
+
+
+class SustainabilitySummary(BaseModel):
+    score: float
+    rating: str
+    total_footprint_kg: float
+    baseline_footprint_kg: float
+    emissions_reduced_kg: float
+    reduction_percent: float
+    distance_km: float
+    modes_used: list[str] = Field(default_factory=list)
+    breakdown_by_mode: list[SustainabilityModeBreakdown] = Field(default_factory=list)
+    breakdown_by_leg: list[SustainabilityLegBreakdown] = Field(default_factory=list)
+    impact_text: str = ""
+    has_transport_data: bool = True
+
+
 class ItineraryGenerateResponse(BaseModel):
     start_location: str
     end_location: str
@@ -153,6 +185,7 @@ class ItineraryGenerateResponse(BaseModel):
     day_totals: list[DayTotal] = Field(default_factory=list)
     excluded_destinations: list[str] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
+    sustainability: SustainabilitySummary | None = None
 
 
 class PlaceCoordsInput(BaseModel):
@@ -190,6 +223,10 @@ class SavedItinerarySummary(BaseModel):
     travelers: int
     hours_per_day: int
     eco_score: int
+    carbon_kg: float = 0.0
+    baseline_footprint_kg: float = 0.0
+    emissions_reduced_kg: float = 0.0
+    reduction_percent: float = 0.0
     status: Literal["upcoming", "completed"]
     image: str
     is_favourite: bool
