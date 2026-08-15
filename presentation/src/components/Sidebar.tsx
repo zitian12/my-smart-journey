@@ -2,20 +2,17 @@ import { useRef } from "react";
 import { GoogleLogin, type CredentialResponse } from "@react-oauth/google";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { useComingSoonToast } from "./ComingSoonToast";
 
-type MenuItem =
-  | { id: string; label: string; to: string; ready: true }
-  | { id: string; label: string; ready: false };
+type MenuItem = { id: string; label: string; to: string };
 
 const menuItems: MenuItem[] = [
-  { id: "overview", label: "Overview", to: "/dashboard", ready: true },
-  { id: "destinations", label: "Destinations", to: "/dashboard/destinations", ready: true },
-  { id: "planning", label: "Planning", to: "/dashboard/planning", ready: true },
-  { id: "eco-score", label: "Eco Score", to: "/dashboard/eco-score", ready: true },
-  { id: "my-trips", label: "My Trips", to: "/dashboard/my-trips", ready: true },
-  { id: "profile", label: "Settings", to: "/dashboard/profile", ready: true },
-  { id: "favourites", label: "Favourites", ready: false },
+  { id: "overview", label: "Overview", to: "/dashboard" },
+  { id: "destinations", label: "Destinations", to: "/dashboard/destinations" },
+  { id: "planning", label: "Planning", to: "/dashboard/planning" },
+  { id: "eco-score", label: "Eco Score", to: "/dashboard/eco-score" },
+  { id: "my-trips", label: "My Trips", to: "/dashboard/my-trips" },
+  { id: "favourites", label: "Favourites", to: "/dashboard/favourites" },
+  { id: "profile", label: "Settings", to: "/dashboard/profile" },
 ];
 
 type SidebarProps = {
@@ -25,7 +22,6 @@ type SidebarProps = {
 
 export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
   const { user, isAuthenticated, isLoading, loginWithGoogle, logout } = useAuth();
-  const { showComingSoon } = useComingSoonToast();
   const navigate = useNavigate();
   const googleLoginRef = useRef<HTMLDivElement>(null);
 
@@ -78,38 +74,24 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
       </div>
 
       <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4" aria-label="Dashboard navigation">
-        {menuItems.map((item) =>
-          item.ready ? (
-            <NavLink
-              key={item.id}
-              to={item.to}
-              end={item.to === "/dashboard"}
-              onClick={onClose}
-              className={({ isActive }) =>
-                [
-                  "block rounded-lg px-3 py-2.5 text-sm font-medium no-underline transition-colors",
-                  isActive
-                    ? "bg-leaf/10 text-forest"
-                    : "text-stone hover:bg-mist hover:text-forest",
-                ].join(" ")
-              }
-            >
-              {item.label}
-            </NavLink>
-          ) : (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => {
-                showComingSoon(item.label);
-                onClose();
-              }}
-              className="block w-full rounded-lg px-3 py-2.5 text-left text-sm font-medium text-stone transition-colors hover:bg-mist hover:text-forest"
-            >
-              {item.label}
-            </button>
-          ),
-        )}
+        {menuItems.map((item) => (
+          <NavLink
+            key={item.id}
+            to={item.to}
+            end={item.to === "/dashboard"}
+            onClick={onClose}
+            className={({ isActive }) =>
+              [
+                "block rounded-lg px-3 py-2.5 text-sm font-medium no-underline transition-colors",
+                isActive
+                  ? "bg-leaf/10 text-forest"
+                  : "text-stone hover:bg-mist hover:text-forest",
+              ].join(" ")
+            }
+          >
+            {item.label}
+          </NavLink>
+        ))}
       </nav>
 
       <div className="border-t border-leaf/10 p-4">

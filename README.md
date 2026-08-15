@@ -48,22 +48,29 @@ Copy `business_logic/.env.example` to `business_logic/.env` and set:
 | `GOOGLE_CSE_API_KEY` | Optional Google Custom Search API key |
 | `GOOGLE_CSE_CX` | Optional Programmable Search Engine ID |
 | `SERPAPI_API_KEY` | SerpApi key for real Google Images (recommended) |
+| `GOOGLE_MAPS_API_KEY` | Server key: Directions API + Geocoding API (IP-restricted) |
 
-### Destination images (Google Images via SerpApi)
+Frontend (`presentation/.env`):
 
-Google CSE “Search the entire web” is deprecated. Use SerpApi instead:
+| Variable | Purpose |
+|----------|---------|
+| `VITE_GOOGLE_CLIENT_ID` | Google Sign-In |
+| `VITE_API_URL` | Backend origin |
+| `VITE_GOOGLE_MAPS_API_KEY` | Browser key: Maps JavaScript API only (HTTP-referrer restricted) |
 
-1. Sign up at https://serpapi.com/ and copy your API key
-2. Put it in `business_logic/.env`:
+Do not reuse OAuth, Gemini, or CSE keys for Maps. Enable only **Maps JavaScript**, **Directions**, and **Geocoding**. Set a Google Cloud budget alert.
 
-```env
-SERPAPI_API_KEY=your_serpapi_key
-```
+Copy `presentation/.env.example` to `presentation/.env` as well.
 
-3. Refresh photos:
+### Destination images
+
+List/detail cards use **Google Places** photos (seed + on-demand enrich). Do not use SerpApi/Wikipedia images for destination cards.
+
+Refresh the Places catalog (ops, not day-to-day):
 
 ```bash
-python database/backfill_destination_media.py
+python database/seed_places_destinations.py
+python database/seed_featured_destination_media.py
 ```
 
 ## AI Malaysia destinations

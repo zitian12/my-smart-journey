@@ -21,6 +21,12 @@ class Destination(BaseModel):
     operating_hours: str = ""
     images: list[str] = Field(default_factory=list)
     source: str = "gemini"
+    place_id: str | None = None
+    photo_name: str | None = None
+    is_featured: bool = False
+    description_source: str | None = None
+    media_enriched_at: datetime | None = None
+    fetched_at: datetime | None = None
     is_active: bool = True
     created_at: datetime = Field(default_factory=_utc_now)
     updated_at: datetime = Field(default_factory=_utc_now)

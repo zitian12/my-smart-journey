@@ -1,16 +1,28 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { DestinationImage } from "../components/DestinationImage";
+import { FavouriteHeartButton } from "../components/FavouriteHeartButton";
 import { MalaysiaMap } from "../components/MalaysiaMap";
+import { useAuth } from "../context/AuthContext";
 import { fetchDestinationById } from "../services/destinationApi";
+import {
+  addFavourite,
+  listFavouriteIds,
+  removeFavourite,
+} from "../services/favouriteApi";
 import type { Destination } from "../types/destination";
+import { realDestinationImages } from "../utils/destinationMedia";
 
 export function DestinationDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const { isAuthenticated, getAccessToken } = useAuth();
   const [destination, setDestination] = useState<Destination | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeImage, setActiveImage] = useState(0);
+  const [isFavourite, setIsFavourite] = useState(false);
+  const [favouriteMessage, setFavouriteMessage] = useState<string | null>(null);
+  const [favouriteBusy, setFavouriteBusy] = useState(false);
 
   useEffect(() => {
     if (!id) {
@@ -48,6 +60,69 @@ export function DestinationDetailPage() {
     };
   }, [id]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadFavouriteState() {
+      if (!id || !isAuthenticated) {
+        setIsFavourite(false);
+        return;
+      }
+      const token = getAccessToken();
+      if (!token) {
+        setIsFavourite(false);
+        return;
+      }
+      try {
+        const ids = await listFavouriteIds(token);
+        if (!cancelled) {
+          setIsFavourite(ids.includes(id));
+        }
+      } catch {
+        if (!cancelled) {
+          setIsFavourite(false);
+        }
+      }
+    }
+
+    void loadFavouriteState();
+    return () => {
+      cancelled = true;
+    };
+  }, [id, isAuthenticated, getAccessToken]);
+
+  const handleToggleFavourite = async () => {
+    if (!destination) return;
+    if (!isAuthenticated) {
+      setFavouriteMessage("Please sign in from the sidebar to save favourites.");
+      return;
+    }
+    const token = getAccessToken();
+    if (!token) {
+      setFavouriteMessage("Please sign in from the sidebar to save favourites.");
+      return;
+    }
+
+    const next = !isFavourite;
+    setFavouriteBusy(true);
+    setFavouriteMessage(null);
+    setIsFavourite(next);
+    try {
+      if (next) {
+        await addFavourite(token, destination.id);
+      } else {
+        await removeFavourite(token, destination.id);
+      }
+    } catch (err) {
+      setIsFavourite(!next);
+      setFavouriteMessage(
+        err instanceof Error ? err.message : "Failed to update favourite",
+      );
+    } finally {
+      setFavouriteBusy(false);
+    }
+  };
+
   if (loading) {
     return <p className="animate-fade-up text-stone">Loading destination…</p>;
   }
@@ -65,9 +140,7 @@ export function DestinationDetailPage() {
     );
   }
 
-  const images = destination.images.length
-    ? destination.images
-    : [];
+  const images = realDestinationImages(destination.images);
   const hasCoords =
     typeof destination.latitude === "number" &&
     typeof destination.longitude === "number";
@@ -86,12 +159,32 @@ export function DestinationDetailPage() {
             <p className="text-sm font-medium uppercase tracking-wider text-leaf">
               {destination.category_name ?? "Destination"}
             </p>
-            <h1 className="mt-2 font-display text-4xl font-semibold tracking-tight text-forest sm:text-5xl">
-              {destination.destination_name}
-            </h1>
-            <p className="mt-4 text-lg leading-relaxed text-stone">
-              {destination.description}
-            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-3">
+              <h1 className="font-display text-4xl font-semibold tracking-tight text-forest sm:text-5xl">
+                {destination.destination_name}
+              </h1>
+              <FavouriteHeartButton
+                filled={isFavourite}
+                onClick={() => {
+                  void handleToggleFavourite();
+                }}
+                disabled={favouriteBusy}
+                size="md"
+                className="bg-white ring-1 ring-forest/10"
+              />
+            </div>
+            {destination.description ? (
+              <p className="mt-4 text-lg leading-relaxed text-stone">
+                {destination.description}
+              </p>
+            ) : (
+              <p className="mt-4 text-lg leading-relaxed text-stone/70">
+                Details will appear here once the description is ready.
+              </p>
+            )}
+            {favouriteMessage ? (
+              <p className="mt-3 text-sm text-amber-800">{favouriteMessage}</p>
+            ) : null}
           </div>
           {destination.state ? (
             <span className="rounded-full bg-leaf/10 px-3 py-1 text-sm font-medium text-leaf">

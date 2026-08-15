@@ -27,6 +27,8 @@ class DestinationOut(BaseModel):
     operating_hours: str = ""
     images: list[str] = Field(default_factory=list)
     source: str = "gemini"
+    place_id: str | None = None
+    is_featured: bool = False
     is_active: bool = True
     created_at: datetime | None = None
     updated_at: datetime | None = None

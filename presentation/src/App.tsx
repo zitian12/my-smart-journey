@@ -4,6 +4,7 @@ import { Layout } from "./components/Layout";
 import { DashboardPage } from "./pages/DashboardPage";
 import { DestinationDetailPage } from "./pages/DestinationDetailPage";
 import { DestinationsPage } from "./pages/DestinationsPage";
+import { FavouritesPage } from "./pages/FavouritesPage";
 import { Home } from "./pages/Home";
 import { EcoScorePage } from "./pages/EcoScorePage";
 import { ItineraryResultPage } from "./pages/ItineraryResultPage";
@@ -37,6 +38,7 @@ export default function App() {
           <Route path="planning/result" element={<ItineraryResultPage />} />
           <Route path="eco-score" element={<EcoScorePage />} />
           <Route path="my-trips" element={<MyTripsPage />} />
+          <Route path="favourites" element={<FavouritesPage />} />
           <Route path="profile" element={<ProfilePage />} />
         </Route>
 

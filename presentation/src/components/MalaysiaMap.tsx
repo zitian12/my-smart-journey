@@ -1,33 +1,9 @@
-import { useEffect } from "react";
-import {
-  MapContainer,
-  Marker,
-  Polyline,
-  Popup,
-  TileLayer,
-  useMap,
-} from "react-leaflet";
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { APIProvider, Map, useMap } from "@vis.gl/react-google-maps";
 import { mapCities } from "../data/malaysia";
 
-import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
-import markerIcon from "leaflet/dist/images/marker-icon.png";
-import markerShadow from "leaflet/dist/images/marker-shadow.png";
-
-const defaultIcon = L.icon({
-  iconUrl: markerIcon,
-  iconRetinaUrl: markerIcon2x,
-  shadowUrl: markerShadow,
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41],
-});
-
-L.Marker.prototype.options.icon = defaultIcon;
-
-const MALAYSIA_CENTER: [number, number] = [4.2105, 108.9758];
+const MALAYSIA_CENTER = { lat: 4.2105, lng: 108.9758 };
+const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined;
 
 export type MapMarker = {
   id?: string;
@@ -47,45 +23,105 @@ type MalaysiaMapProps = {
   fitBounds?: boolean;
 };
 
-function numberedIcon(label: string, kind: MapMarker["kind"] = "stop") {
-  const bg =
-    kind === "start" ? "#1b4332" : kind === "end" ? "#bc6c25" : "#2d6a4f";
-  return L.divIcon({
-    className: "msj-map-pin",
-    html: `<div style="
-      display:flex;align-items:center;justify-content:center;
-      width:28px;height:28px;border-radius:999px;
-      background:${bg};color:#fff;font:600 12px/1 Outfit,system-ui,sans-serif;
-      border:2px solid #fff;box-shadow:0 1px 4px rgba(20,32,26,.35);
-    ">${label}</div>`,
-    iconSize: [28, 28],
-    iconAnchor: [14, 14],
-    popupAnchor: [0, -14],
-  });
+function pinColor(kind: MapMarker["kind"] = "stop"): string {
+  if (kind === "start") return "#1b4332";
+  if (kind === "end") return "#bc6c25";
+  return "#2d6a4f";
 }
 
-function FitBounds({
-  points,
-  enabled,
+function pinIcon(label: string, kind: MapMarker["kind"]): google.maps.Icon {
+  const bg = pinColor(kind);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28">
+    <circle cx="14" cy="14" r="12" fill="${bg}" stroke="#fff" stroke-width="2"/>
+    <text x="14" y="18" text-anchor="middle" fill="#fff" font-size="11" font-weight="700" font-family="Arial,sans-serif">${label}</text>
+  </svg>`;
+  return {
+    url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
+    scaledSize: new google.maps.Size(28, 28),
+    anchor: new google.maps.Point(14, 14),
+  };
+}
+
+function MapOverlays({
+  markers,
+  route,
+  fitBounds,
 }: {
-  points: Array<[number, number]>;
-  enabled: boolean;
+  markers: MapMarker[];
+  route?: Array<[number, number]>;
+  fitBounds: boolean;
 }) {
   const map = useMap();
-  const key = points.map(([lat, lng]) => `${lat.toFixed(5)},${lng.toFixed(5)}`).join("|");
+  const overlayKey = useMemo(() => {
+    const markerPart = markers
+      .map((m) => `${m.lat.toFixed(5)},${m.lng.toFixed(5)}:${m.label ?? ""}`)
+      .join("|");
+    const routePart = (route ?? [])
+      .map(([lat, lng]) => `${lat.toFixed(5)},${lng.toFixed(5)}`)
+      .join("|");
+    return `${markerPart}::${routePart}`;
+  }, [markers, route]);
 
   useEffect(() => {
-    if (!enabled || points.length === 0) {
-      return;
+    if (!map) return;
+
+    const gMarkers: google.maps.Marker[] = [];
+    const info = new google.maps.InfoWindow();
+    let polyline: google.maps.Polyline | null = null;
+
+    markers.forEach((point, index) => {
+      const label =
+        point.label != null ? String(point.label) : String(index + 1);
+      const marker = new google.maps.Marker({
+        map,
+        position: { lat: point.lat, lng: point.lng },
+        title: point.name,
+        icon:
+          point.label != null || point.kind
+            ? pinIcon(label, point.kind)
+            : undefined,
+      });
+      marker.addListener("click", () => {
+        info.setContent(
+          `<span style="font-weight:600;color:#14201a">${point.name}</span>`,
+        );
+        info.open({ map, anchor: marker });
+      });
+      gMarkers.push(marker);
+    });
+
+    if (route && route.length >= 2) {
+      polyline = new google.maps.Polyline({
+        map,
+        path: route.map(([lat, lng]) => ({ lat, lng })),
+        strokeColor: "#2563eb",
+        strokeWeight: 4,
+        strokeOpacity: 0.9,
+      });
     }
-    if (points.length === 1) {
-      map.setView(points[0], Math.max(map.getZoom(), 11));
-      return;
+
+    if (fitBounds) {
+      const bounds = new google.maps.LatLngBounds();
+      markers.forEach((point) =>
+        bounds.extend({ lat: point.lat, lng: point.lng }),
+      );
+      (route ?? []).forEach(([lat, lng]) => bounds.extend({ lat, lng }));
+      if (!bounds.isEmpty()) {
+        if (markers.length === 1 && (!route || route.length < 2)) {
+          map.setCenter(bounds.getCenter());
+          map.setZoom(Math.max(map.getZoom() ?? 11, 11));
+        } else {
+          map.fitBounds(bounds, 40);
+        }
+      }
     }
-    map.fitBounds(L.latLngBounds(points), { padding: [40, 40], maxZoom: 12 });
-    // key captures coordinate identity without depending on array identity
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, map, key]);
+
+    return () => {
+      info.close();
+      gMarkers.forEach((marker) => marker.setMap(null));
+      polyline?.setMap(null);
+    };
+  }, [map, overlayKey, fitBounds, markers, route]);
 
   return null;
 }
@@ -93,7 +129,7 @@ function FitBounds({
 export function MalaysiaMap({
   markers,
   route,
-  center = MALAYSIA_CENTER,
+  center = [MALAYSIA_CENTER.lat, MALAYSIA_CENTER.lng],
   zoom = 5,
   className = "h-[min(70vh,560px)] w-full rounded-2xl z-0",
   fitBounds = true,
@@ -106,53 +142,76 @@ export function MalaysiaMap({
       lng: city.lng,
     }));
 
-  const boundPoints: Array<[number, number]> = [
-    ...points.map((p) => [p.lat, p.lng] as [number, number]),
-    ...(route ?? []),
-  ];
-
-  useEffect(() => {
-    window.dispatchEvent(new Event("resize"));
-  }, [center, zoom, points.length, route?.length]);
+  if (!API_KEY) {
+    return (
+      <div
+        className={`${className} flex items-center justify-center bg-mist text-sm text-stone`}
+      >
+        Set VITE_GOOGLE_MAPS_API_KEY to show the map.
+      </div>
+    );
+  }
 
   return (
-    <MapContainer
-      center={center}
-      zoom={zoom}
-      scrollWheelZoom
-      className={className}
-    >
-      <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-      />
-      <FitBounds points={boundPoints} enabled={fitBounds && boundPoints.length > 0} />
-      {route && route.length >= 2 ? (
-        <Polyline
-          positions={route}
-          pathOptions={{ color: "#2563eb", weight: 4, opacity: 0.9 }}
-        />
-      ) : null}
-      {points.map((point, index) => {
-        const label =
-          point.label != null ? String(point.label) : String(index + 1);
-        const icon =
-          point.label != null || point.kind
-            ? numberedIcon(label, point.kind)
-            : defaultIcon;
-        return (
-          <Marker
-            key={point.id ?? `${point.name}-${point.lat}-${point.lng}`}
-            position={[point.lat, point.lng]}
-            icon={icon}
-          >
-            <Popup>
-              <span className="font-medium text-ink">{point.name}</span>
-            </Popup>
-          </Marker>
-        );
-      })}
-    </MapContainer>
+    <div className={`${className} overflow-hidden msj-google-map`}>
+      <APIProvider apiKey={API_KEY}>
+        <Map
+          defaultCenter={{ lat: center[0], lng: center[1] }}
+          defaultZoom={zoom}
+          gestureHandling="greedy"
+          disableDefaultUI={false}
+          mapTypeControl={false}
+          streetViewControl={false}
+          fullscreenControl={false}
+          style={{ width: "100%", height: "100%" }}
+        >
+          <MapOverlays
+            markers={points}
+            route={route}
+            fitBounds={
+              fitBounds && (points.length > 0 || (route?.length ?? 0) > 0)
+            }
+          />
+        </Map>
+      </APIProvider>
+    </div>
   );
 }
 
+export function LazyMalaysiaMap(props: MalaysiaMapProps) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || visible) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) {
+          setVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "80px" },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [visible]);
+
+  const placeholderClass =
+    props.className ?? "h-[min(70vh,560px)] w-full rounded-2xl";
+
+  return (
+    <div ref={ref}>
+      {visible ? (
+        <MalaysiaMap {...props} />
+      ) : (
+        <div
+          className={`${placeholderClass} flex items-center justify-center bg-mist text-sm text-stone`}
+        >
+          Map loads when you scroll here
+        </div>
+      )}
+    </div>
+  );
+}

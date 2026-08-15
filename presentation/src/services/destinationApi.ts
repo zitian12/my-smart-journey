@@ -52,3 +52,13 @@ export async function fetchDestinationById(id: string): Promise<Destination> {
   }
   return response.json();
 }
+
+export async function enrichDestination(id: string): Promise<Destination> {
+  const response = await fetch(`${API_URL}/api/destinations/${id}/enrich`, {
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw new Error(await readError(response, "Failed to enrich destination"));
+  }
+  return response.json();
+}

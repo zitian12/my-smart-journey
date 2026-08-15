@@ -58,35 +58,10 @@ function pathFromLegs(
       }
     }
   }
-  // Real road geometry has many vertices; 2 points/leg is still a straight line.
-  if (points.length >= 2 && points.length > legs.length * 2) {
+  if (points.length >= 2) {
     return points;
   }
   return undefined;
-}
-
-async function fetchDrivingPath(
-  from: [number, number],
-  to: [number, number],
-): Promise<Array<[number, number]>> {
-  const url =
-    `https://router.project-osrm.org/route/v1/driving/` +
-    `${from[1]},${from[0]};${to[1]},${to[0]}` +
-    `?overview=full&geometries=geojson&alternatives=false`;
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`OSRM ${response.status}`);
-  }
-  const payload = (await response.json()) as {
-    code?: string;
-    routes?: { geometry?: { coordinates?: number[][] } }[];
-  };
-  if (payload.code !== "Ok" || !payload.routes?.[0]?.geometry?.coordinates) {
-    throw new Error("OSRM route missing");
-  }
-  return payload.routes[0].geometry.coordinates.map(
-    ([lng, lat]) => [lat, lng] as [number, number],
-  );
 }
 
 function hasCoords(d: Destination): boolean {
@@ -292,8 +267,6 @@ export function ItineraryResultPage() {
   const [places, setPlaces] = useState<PlaceCoords[]>(initial?.places ?? []);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [roadRoute, setRoadRoute] = useState<Array<[number, number]> | undefined>();
-  const [routeLoading, setRouteLoading] = useState(false);
   const [saveBusy, setSaveBusy] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -376,54 +349,10 @@ export function ItineraryResultPage() {
     return ordered;
   }, [itinerary, places, placeById, placeByName]);
 
-  const embeddedRoute = useMemo(() => {
+  const route = useMemo(() => {
     if (!itinerary) return undefined;
     return pathFromLegs(itinerary.legs);
   }, [itinerary]);
-
-  useEffect(() => {
-    if (!itinerary) {
-      setRoadRoute(undefined);
-      return;
-    }
-    if (embeddedRoute && embeddedRoute.length >= 2) {
-      setRoadRoute(embeddedRoute);
-      return;
-    }
-    if (markers.length < 2) {
-      setRoadRoute(undefined);
-      return;
-    }
-
-    let cancelled = false;
-    async function loadDrivingRoute() {
-      setRouteLoading(true);
-      try {
-        const chunks: Array<[number, number]> = [];
-        for (let i = 0; i < markers.length - 1; i += 1) {
-          const a: [number, number] = [markers[i].lat, markers[i].lng];
-          const b: [number, number] = [markers[i + 1].lat, markers[i + 1].lng];
-          const segment = await fetchDrivingPath(a, b);
-          chunks.push(...segment);
-        }
-        if (!cancelled && chunks.length >= 2) {
-          setRoadRoute(chunks);
-        }
-      } catch {
-        if (!cancelled) {
-          setRoadRoute(undefined);
-        }
-      } finally {
-        if (!cancelled) setRouteLoading(false);
-      }
-    }
-    void loadDrivingRoute();
-    return () => {
-      cancelled = true;
-    };
-  }, [itinerary, embeddedRoute, markers]);
-
-  const route = roadRoute;
 
   const days = useMemo(() => {
     if (!itinerary) return [] as number[];
@@ -931,11 +860,9 @@ export function ItineraryResultPage() {
             <div className="border-b border-forest/5 px-4 py-3">
               <h2 className="text-sm font-semibold text-ink">Route map</h2>
               <p className="text-xs text-stone">
-                {routeLoading
-                  ? "Loading driving route…"
-                  : route && route.length > markers.length * 2
-                    ? "Driving route (road network)"
-                    : "OpenStreetMap preview"}
+                {route && route.length > markers.length * 2
+                  ? "Driving route"
+                  : "Google Maps preview"}
               </p>
             </div>
             <MalaysiaMap

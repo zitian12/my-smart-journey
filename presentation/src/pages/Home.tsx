@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { MalaysiaMap } from "../components/MalaysiaMap";
+import { LazyMalaysiaMap } from "../components/MalaysiaMap";
 import { HERO_IMAGE, destinations as fallbackDestinations } from "../data/malaysia";
 import { fetchDestinations } from "../services/destinationApi";
 import type { Destination } from "../types/destination";
@@ -159,7 +159,7 @@ export function Home() {
           </div>
 
           <div className="overflow-hidden rounded-2xl ring-1 ring-forest/10 shadow-sm">
-            <MalaysiaMap />
+            <LazyMalaysiaMap />
           </div>
         </div>
       </section>

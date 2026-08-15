@@ -10,7 +10,7 @@ import re
 
 from config import GEMINI_API_KEY, GEMINI_MODEL
 from database.models import Destination, DestinationCategory
-from integration.external_api import GeminiClient, NominatimClient
+from integration.external_api import GeminiClient, GoogleMapsClient
 from integration.repositories import (
     DestinationCategoryRepository,
     DestinationRepository,
@@ -97,7 +97,7 @@ class DestinationAiService:
         category_repository: DestinationCategoryRepository | None = None,
         destination_repository: DestinationRepository | None = None,
         gemini_client: GeminiClient | None = None,
-        nominatim_client: NominatimClient | None = None,
+        maps_client: GoogleMapsClient | None = None,
         image_service: DestinationImageService | None = None,
     ) -> None:
         self._categories = category_repository or DestinationCategoryRepository()
@@ -106,7 +106,7 @@ class DestinationAiService:
             api_key=GEMINI_API_KEY,
             model=GEMINI_MODEL,
         )
-        self._geocoder = nominatim_client or NominatimClient()
+        self._geocoder = maps_client or GoogleMapsClient()
         self._images = image_service or DestinationImageService()
 
     async def ensure_default_categories(self) -> list[dict]:
@@ -143,12 +143,13 @@ class DestinationAiService:
         for state in MALAYSIA_STATES:
             existing = await self._destinations.list_destinations(
                 state=state,
+                source="gemini",
                 active_only=True,
                 limit=50,
             )
             if len(existing) >= count_per_state:
                 logger.info(
-                    "Skipping state=%s — already has %s destinations",
+                    "Skipping state=%s — already has %s Gemini destinations",
                     state,
                     len(existing),
                 )
@@ -192,23 +193,29 @@ class DestinationAiService:
                     default_category_id,
                 )
 
-                latitude, longitude = await self._geocoder.geocode_destination(
-                    name=name,
-                    location=location,
-                    state=state,
+                existing_doc = await self._destinations.get_by_normalized_name(
+                    normalized
                 )
-                if not _in_malaysia(latitude, longitude):
-                    fallback_lat = item.get("latitude")
-                    fallback_lng = item.get("longitude")
-                    if _in_malaysia(fallback_lat, fallback_lng):
-                        latitude, longitude = fallback_lat, fallback_lng
-                        logger.info(
-                            "Using Gemini coordinates for %s (%.5f, %.5f)",
-                            name,
-                            latitude,
-                            longitude,
-                        )
-                    else:
+                latitude = existing_doc.get("latitude") if existing_doc else None
+                longitude = existing_doc.get("longitude") if existing_doc else None
+                if _in_malaysia(latitude, longitude):
+                    logger.info("Skipping geocode for %s — coords already stored", name)
+                elif _in_malaysia(item.get("latitude"), item.get("longitude")):
+                    latitude = item.get("latitude")
+                    longitude = item.get("longitude")
+                    logger.info(
+                        "Using Gemini coordinates for %s (%.5f, %.5f)",
+                        name,
+                        latitude,
+                        longitude,
+                    )
+                else:
+                    latitude, longitude = await self._geocoder.geocode_destination(
+                        name=name,
+                        location=location,
+                        state=state,
+                    )
+                    if not _in_malaysia(latitude, longitude):
                         latitude, longitude = None, None
                         logger.warning("No valid coordinates for %s", name)
 
@@ -237,7 +244,10 @@ class DestinationAiService:
 
         deactivated = 0
         if deactivate_missing:
-            deactivated = await self._destinations.deactivate_missing(synced_names)
+            deactivated = await self._destinations.deactivate_missing(
+                synced_names,
+                exclude_sources=["places"],
+            )
 
         logger.info(
             "Destination sync complete — states=%s upserted=%s deactivated=%s",

@@ -90,3 +90,19 @@ async def get_destination(destination_id: str) -> dict:
             detail="Destination not found",
         )
     return destination
+
+
+@router.post(
+    "/api/destinations/{destination_id}/enrich",
+    response_model=DestinationOut,
+)
+async def enrich_destination(destination_id: str) -> dict:
+    """Cache Places photo/summary for a destination if missing (idempotent)."""
+    service = DestinationService()
+    destination = await service.enrich_destination_public(destination_id)
+    if destination is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Destination not found",
+        )
+    return destination

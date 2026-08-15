@@ -1,64 +1,123 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type MouseEvent } from "react";
 import { Link } from "react-router-dom";
 import { DestinationImage } from "../components/DestinationImage";
+import { FavouriteHeartButton } from "../components/FavouriteHeartButton";
+import { useAuth } from "../context/AuthContext";
 import {
   fetchDestinationCategories,
   fetchDestinations,
 } from "../services/destinationApi";
+import {
+  addFavourite,
+  listFavouriteIds,
+  removeFavourite,
+} from "../services/favouriteApi";
 import type {
   Destination,
   DestinationCategory,
 } from "../types/destination";
+import {
+  categoryPlaceholderClass,
+  realDestinationImages,
+} from "../utils/destinationMedia";
 
-function PlaceCard({ destination }: { destination: Destination }) {
+function PlaceCard({
+  destination,
+  isFavourite,
+  onToggleFavourite,
+}: {
+  destination: Destination;
+  isFavourite: boolean;
+  onToggleFavourite: (destinationId: string) => void;
+}) {
+  const images = realDestinationImages(destination.images);
+  const label =
+    destination.category_name ||
+    destination.category_slug ||
+    "Destination";
+
+  const handleHeartClick = (event: MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onToggleFavourite(destination.id);
+  };
+
   return (
-    <Link
-      to={`/dashboard/destinations/${destination.id}`}
-      className="group block overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-forest/5 transition duration-300 hover:-translate-y-1 hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-leaf"
-    >
-      <article>
-        <div className="aspect-[4/3] overflow-hidden bg-mist">
-          <DestinationImage
-            images={destination.images}
-            alt={destination.destination_name}
-            className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
-          />
-        </div>
-        <div className="space-y-2 p-5">
-          <div className="flex items-start justify-between gap-3">
-            <h3 className="text-lg font-semibold text-ink">
-              {destination.destination_name}
-            </h3>
-            {destination.state ? (
-              <span className="shrink-0 rounded-full bg-leaf/10 px-2.5 py-0.5 text-xs font-medium text-leaf">
-                {destination.state}
-              </span>
-            ) : null}
+    <div className="group relative overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-forest/5 transition duration-300 hover:-translate-y-1 hover:shadow-lg">
+      <FavouriteHeartButton
+        filled={isFavourite}
+        onClick={handleHeartClick}
+        className="absolute right-3 top-3 z-10 bg-white/85 shadow-sm backdrop-blur-sm"
+      />
+      <Link
+        to={`/dashboard/destinations/${destination.id}`}
+        className="block focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-leaf"
+      >
+        <article>
+          <div className="aspect-[4/3] overflow-hidden bg-mist">
+            {images.length > 0 ? (
+              <DestinationImage
+                images={images}
+                alt={destination.destination_name}
+                className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+              />
+            ) : (
+              <div
+                className={`flex h-full w-full flex-col items-center justify-center gap-2 bg-gradient-to-br px-4 text-center ${categoryPlaceholderClass(destination.category_slug)}`}
+                aria-hidden
+              >
+                <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-forest/45">
+                  {label}
+                </span>
+                <span className="line-clamp-2 font-display text-lg font-semibold text-forest/35">
+                  {destination.destination_name}
+                </span>
+              </div>
+            )}
           </div>
-          {destination.category_name ? (
-            <p className="text-xs font-medium uppercase tracking-wide text-forest/70">
-              {destination.category_name}
-            </p>
-          ) : null}
-          <p className="line-clamp-3 text-sm leading-relaxed text-stone">
-            {destination.description}
-          </p>
-        </div>
-      </article>
-    </Link>
+          <div className="space-y-2 p-5">
+            <div className="flex items-start justify-between gap-3">
+              <h3 className="text-lg font-semibold text-ink">
+                {destination.destination_name}
+              </h3>
+              {destination.state ? (
+                <span className="shrink-0 rounded-full bg-leaf/10 px-2.5 py-0.5 text-xs font-medium text-leaf">
+                  {destination.state}
+                </span>
+              ) : null}
+            </div>
+            {destination.category_name ? (
+              <p className="text-xs font-medium uppercase tracking-wide text-forest/70">
+                {destination.category_name}
+              </p>
+            ) : null}
+            {destination.description ? (
+              <p className="line-clamp-3 text-sm leading-relaxed text-stone">
+                {destination.description}
+              </p>
+            ) : (
+              <p className="text-sm text-stone/70">Open for details and map</p>
+            )}
+          </div>
+        </article>
+      </Link>
+    </div>
   );
 }
 
 export function DestinationsPage() {
+  const { isAuthenticated, getAccessToken } = useAuth();
   const [categories, setCategories] = useState<DestinationCategory[]>([]);
   const [destinations, setDestinations] = useState<Destination[]>([]);
   const [availableStates, setAvailableStates] = useState<string[]>([]);
+  const [favouriteIds, setFavouriteIds] = useState<Set<string>>(new Set());
   const [nameQuery, setNameQuery] = useState("");
   const [debouncedName, setDebouncedName] = useState("");
   const [stateFilter, setStateFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [favouriteMessage, setFavouriteMessage] = useState<string | null>(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -88,6 +147,37 @@ export function DestinationsPage() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadFavouriteIds() {
+      if (!isAuthenticated) {
+        setFavouriteIds(new Set());
+        return;
+      }
+      const token = getAccessToken();
+      if (!token) {
+        setFavouriteIds(new Set());
+        return;
+      }
+      try {
+        const ids = await listFavouriteIds(token);
+        if (!cancelled) {
+          setFavouriteIds(new Set(ids));
+        }
+      } catch {
+        if (!cancelled) {
+          setFavouriteIds(new Set());
+        }
+      }
+    }
+
+    void loadFavouriteIds();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, getAccessToken]);
 
   useEffect(() => {
     let cancelled = false;
@@ -158,6 +248,51 @@ export function DestinationsPage() {
     };
   }, [debouncedName, stateFilter, categoryFilter]);
 
+  const handleToggleFavourite = async (destinationId: string) => {
+    if (!isAuthenticated) {
+      setFavouriteMessage("Please sign in from the sidebar to save favourites.");
+      return;
+    }
+    const token = getAccessToken();
+    if (!token) {
+      setFavouriteMessage("Please sign in from the sidebar to save favourites.");
+      return;
+    }
+
+    const wasFavourite = favouriteIds.has(destinationId);
+    setFavouriteMessage(null);
+    setFavouriteIds((current) => {
+      const next = new Set(current);
+      if (wasFavourite) {
+        next.delete(destinationId);
+      } else {
+        next.add(destinationId);
+      }
+      return next;
+    });
+
+    try {
+      if (wasFavourite) {
+        await removeFavourite(token, destinationId);
+      } else {
+        await addFavourite(token, destinationId);
+      }
+    } catch (err) {
+      setFavouriteIds((current) => {
+        const next = new Set(current);
+        if (wasFavourite) {
+          next.add(destinationId);
+        } else {
+          next.delete(destinationId);
+        }
+        return next;
+      });
+      setFavouriteMessage(
+        err instanceof Error ? err.message : "Failed to update favourite",
+      );
+    }
+  };
+
   return (
     <div className="animate-fade-up">
       <header className="mb-10 max-w-2xl">
@@ -168,8 +303,8 @@ export function DestinationsPage() {
           Destinations in Malaysia
         </h1>
         <p className="mt-4 text-lg text-stone">
-          Browse AI-curated places across nature, culture, heritage, adventure,
-          and shopping — tap a card for full details and a map.
+          Popular places with photos appear first. Tap the heart to save places
+          you love.
         </p>
       </header>
 
@@ -230,17 +365,28 @@ export function DestinationsPage() {
         </p>
       ) : null}
 
+      {favouriteMessage ? (
+        <p className="mb-6 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800 ring-1 ring-amber-100">
+          {favouriteMessage}
+        </p>
+      ) : null}
+
       {loading ? (
         <p className="text-stone">Loading destinations…</p>
       ) : destinations.length === 0 ? (
         <p className="rounded-2xl bg-white/70 px-5 py-8 text-stone ring-1 ring-forest/10">
-          No destinations found. Run the Gemini sync seed script to populate
-          places, then refresh this page.
+          No destinations found. Run the Places seed script to populate places,
+          then refresh this page.
         </p>
       ) : (
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {destinations.map((destination) => (
-            <PlaceCard key={destination.id} destination={destination} />
+            <PlaceCard
+              key={destination.id}
+              destination={destination}
+              isFavourite={favouriteIds.has(destination.id)}
+              onToggleFavourite={handleToggleFavourite}
+            />
           ))}
         </div>
       )}

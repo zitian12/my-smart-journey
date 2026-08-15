@@ -15,6 +15,9 @@ from database.connection import verify_connection
 from integration.repositories import (
     DestinationCategoryRepository,
     DestinationRepository,
+    FavouriteDestinationRepository,
+    FavouriteFolderItemRepository,
+    FavouriteFolderRepository,
     ItineraryRepository,
     UserRepository,
 )
@@ -57,6 +60,15 @@ async def startup() -> None:
 
     itinerary_repository = ItineraryRepository()
     await itinerary_repository.ensure_indexes()
+
+    favourite_destination_repository = FavouriteDestinationRepository()
+    await favourite_destination_repository.ensure_indexes()
+
+    favourite_folder_repository = FavouriteFolderRepository()
+    await favourite_folder_repository.ensure_indexes()
+
+    favourite_folder_item_repository = FavouriteFolderItemRepository()
+    await favourite_folder_item_repository.ensure_indexes()
 
 
 @app.get("/")

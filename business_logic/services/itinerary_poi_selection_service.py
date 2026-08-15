@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 from typing import Any
@@ -179,9 +180,10 @@ class ItineraryPoiSelectionService:
                     break
 
         picked_ids: list[dict[str, Any]] = []
-        if self._gemini is not None:
+        if self._gemini is not None and not GeminiClient.is_rate_limited():
             try:
-                picked_ids = self._gemini.pick_itinerary_stops(
+                picked_ids = await asyncio.to_thread(
+                    self._gemini.pick_itinerary_stops,
                     candidates=shortlist,
                     start_name=str(start.get("name") or ""),
                     end_name=str(end.get("name") or ""),
@@ -192,6 +194,8 @@ class ItineraryPoiSelectionService:
                 )
             except Exception as exc:  # noqa: BLE001 — fall back to rules
                 logger.warning("Gemini stop pick failed; using rule fallback: %s", exc)
+        elif GeminiClient.is_rate_limited():
+            logger.info("Skipping Gemini stop pick — rate-limit cooldown")
 
         if not picked_ids:
             picked_ids = self._rule_pick(
@@ -239,7 +243,7 @@ class ItineraryPoiSelectionService:
         return places
 
     async def _load_enriched_catalog(self) -> list[dict[str, Any]]:
-        raw = await self._destinations.list_with_coordinates()
+        raw = await self._destinations.list_with_coordinates(limit=1500)
         categories = await self._categories.list_active()
         lookup = {c["id"]: c for c in categories}
         enriched: list[dict[str, Any]] = []

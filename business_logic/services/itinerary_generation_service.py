@@ -7,13 +7,14 @@ import re
 from itertools import permutations
 from typing import Any
 
-from integration.external_api import OrsClient, OsrmClient
+from integration.external_api import GoogleMapsClient
+from integration.external_api.geo import estimate_route, haversine_duration_min, haversine_km
 from services.carbon_stub_service import CarbonStubService
 from services.sustainability_service import SustainabilityService
 
 _DEFAULT_STAY_MIN = 90
 _DEFAULT_HOURS_PER_DAY = 8
-_SHARED_ORS = OrsClient()
+_SHARED_MAPS = GoogleMapsClient()
 _CATEGORY_STAY_MIN: dict[str, int] = {
     "nature": 120,
     "culture": 90,
@@ -67,17 +68,15 @@ class ItineraryGenerationService:
     def __init__(
         self,
         carbon_service: CarbonStubService | None = None,
-        osrm_client: OsrmClient | None = None,
-        ors_client: OrsClient | None = None,
+        maps_client: GoogleMapsClient | None = None,
     ) -> None:
         self._carbon = carbon_service or CarbonStubService()
         self._sustainability = SustainabilityService()
-        self._osrm = osrm_client or OsrmClient()
-        self._ors = ors_client or _SHARED_ORS
+        self._maps = maps_client or _SHARED_MAPS
         self._route_cache: dict[tuple[str, float, float, float, float], dict[str, Any]] = {}
 
     def generate(self, payload: dict[str, Any]) -> dict[str, Any]:
-        # Fresh cache per generate call (logic unchanged; avoids repeat ORS/OSRM hits).
+        # Fresh walking-pair cache per generate; Directions itself is cached on the client.
         self._route_cache = {}
         destinations_raw = payload.get("destinations") or []
         if not destinations_raw:
@@ -549,18 +548,17 @@ class ItineraryGenerationService:
         return [stops[i - 1] for i in improved]
 
     def _driving_matrix(self, points: list[tuple[float, float]]) -> list[list[float]]:
-        ors = self._ors.matrix(points)
-        if ors is not None:
-            return ors
-
+        """Haversine duration matrix — no Google Distance Matrix calls."""
         n = len(points)
+        speed = _MODE_SPEEDS_KMH["driving"]
         matrix = [[0.0] * n for _ in range(n)]
         for i in range(n):
             for j in range(n):
                 if i == j:
                     continue
-                route = self._driving_route(points[i], points[j])
-                matrix[i][j] = float(route["duration_min"])
+                matrix[i][j] = haversine_duration_min(
+                    points[i], points[j], speed_kmh=speed
+                )
         return matrix
 
     def _two_opt(
@@ -810,16 +808,27 @@ class ItineraryGenerationService:
         *,
         preferred_mode: str = "driving",
     ) -> list[dict[str, Any]]:
+        points = [(p["latitude"], p["longitude"]) for p in path]
+        google_legs = (
+            self._maps.route_waypoints(points, mode="driving")
+            if len(points) >= 2
+            else []
+        )
         legs: list[dict[str, Any]] = []
-        for a, b in zip(path, path[1:]):
-            options = self._mode_metrics(a, b)
+        for index, (a, b) in enumerate(zip(path, path[1:])):
+            driving = google_legs[index] if index < len(google_legs) else None
+            options = self._mode_metrics(a, b, driving=driving)
             default = self._pick_default_option(
                 options, preferred_mode=preferred_mode
             )
-            road_path = self._driving_path(
-                (a["latitude"], a["longitude"]),
-                (b["latitude"], b["longitude"]),
-            )
+            road_path = []
+            if driving and isinstance(driving.get("path"), list):
+                road_path = driving["path"]
+            if len(road_path) < 2:
+                road_path = [
+                    [a["latitude"], a["longitude"]],
+                    [b["latitude"], b["longitude"]],
+                ]
             legs.append(
                 {
                     "from_place": {"id": a["id"], "name": a["name"]},
@@ -890,14 +899,20 @@ class ItineraryGenerationService:
             return defaults[0]
         return min(options, key=lambda o: int(o["duration_min"]))
 
-    def _mode_metrics(self, a: dict[str, Any], b: dict[str, Any]) -> list[dict[str, Any]]:
-        driving = self._driving_route(
-            (a["latitude"], a["longitude"]),
-            (b["latitude"], b["longitude"]),
-        )
+    def _mode_metrics(
+        self,
+        a: dict[str, Any],
+        b: dict[str, Any],
+        *,
+        driving: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        origin = (a["latitude"], a["longitude"])
+        dest = (b["latitude"], b["longitude"])
+        if driving is None or not driving.get("distance_km"):
+            driving = estimate_route(origin, dest, speed_kmh=_MODE_SPEEDS_KMH["driving"])
         walking = self._walking_metrics(
-            (a["latitude"], a["longitude"]),
-            (b["latitude"], b["longitude"]),
+            origin,
+            dest,
             driving_distance_km=float(driving["distance_km"]),
         )
 
@@ -962,10 +977,11 @@ class ItineraryGenerationService:
         *,
         driving_distance_km: float,
     ) -> dict[str, Any]:
-        walking = self._walking_route(a, b)
-        if walking is not None:
-            return walking
-        distance = min(driving_distance_km, self._osrm.haversine_km(a, b) * 1.2)
+        if haversine_km(a, b) <= _MAX_WALK_KM:
+            walking = self._walking_route(a, b)
+            if walking is not None:
+                return walking
+        distance = min(driving_distance_km, haversine_km(a, b) * 1.2)
         duration = max(
             1,
             int(round((distance / _MODE_SPEEDS_KMH["walking"]) * 60.0)),
@@ -976,15 +992,11 @@ class ItineraryGenerationService:
             "is_estimated": True,
         }
 
-    def _driving_route(
-        self,
-        a: tuple[float, float],
-        b: tuple[float, float],
-        *,
-        with_geometry: bool = False,
-    ) -> dict[str, Any]:
+    def _walking_route(
+        self, a: tuple[float, float], b: tuple[float, float]
+    ) -> dict[str, Any] | None:
         cache_key = (
-            "driving-geo" if with_geometry else "driving",
+            "walking",
             round(a[0], 5),
             round(a[1], 5),
             round(b[0], 5),
@@ -994,62 +1006,15 @@ class ItineraryGenerationService:
         if cached is not None:
             return cached
 
-        ors = self._ors.route(a, b, profile="driving-car", geometry=with_geometry)
-        if ors is not None:
-            self._route_cache[cache_key] = ors
-            return ors
-        osrm = self._osrm.route(a, b, profile="driving", geometry=with_geometry)
-        if osrm is not None:
-            self._route_cache[cache_key] = osrm
-            return osrm
-        estimated = self._osrm.estimate_haversine(
-            a, b, speed_kmh=_MODE_SPEEDS_KMH["driving"]
-        )
-        self._route_cache[cache_key] = estimated
-        return estimated
-
-    def _driving_path(
-        self,
-        a: tuple[float, float],
-        b: tuple[float, float],
-    ) -> list[list[float]]:
-        """Road polyline [[lat, lng], ...] for map display.
-
-        Prefer OSRM geometry (reliable GeoJSON). ORS is optional backup.
-        """
-        osrm = self._osrm.route(a, b, profile="driving", geometry=True)
-        if osrm and isinstance(osrm.get("path"), list) and len(osrm["path"]) >= 2:
-            return osrm["path"]
-        ors = self._ors.route(a, b, profile="driving-car", geometry=True)
-        if ors and isinstance(ors.get("path"), list) and len(ors["path"]) >= 2:
-            return ors["path"]
-        cached = self._driving_route(a, b, with_geometry=True)
-        path = cached.get("path")
-        if isinstance(path, list) and len(path) >= 2:
-            return path
-        return [[a[0], a[1]], [b[0], b[1]]]
-
-    def _walking_route(
-        self, a: tuple[float, float], b: tuple[float, float]
-    ) -> dict[str, Any] | None:
-        cache_key = ("walking", round(a[0], 5), round(a[1], 5), round(b[0], 5), round(b[1], 5))
-        if cache_key in self._route_cache:
-            return self._route_cache[cache_key]
-
-        # Prefer OSRM when ORS is rate-limited to avoid extra 429 noise.
-        if self._ors.available:
-            ors = self._ors.route(a, b, profile="foot-walking", geometry=False)
-            if ors is not None:
-                self._route_cache[cache_key] = ors
-                return ors
-        osrm = self._osrm.route(a, b, profile="foot", geometry=False)
-        if osrm is not None:
-            self._route_cache[cache_key] = osrm
-        return osrm
+        walking = self._maps.route_pair(a, b, mode="walking")
+        if walking is not None:
+            self._route_cache[cache_key] = walking
+        return walking
 
     def _travel_min(self, a: dict[str, Any], b: dict[str, Any]) -> int:
-        route = self._driving_route(
+        minutes = haversine_duration_min(
             (a["latitude"], a["longitude"]),
             (b["latitude"], b["longitude"]),
+            speed_kmh=_MODE_SPEEDS_KMH["driving"],
         )
-        return int(route["duration_min"])
+        return max(1, int(round(minutes)))

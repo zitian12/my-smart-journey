@@ -1,4 +1,4 @@
-"""Wikipedia / Wikimedia image lookup for real destination photos."""
+"""Wikipedia / Wikimedia summary lookup for destination photos and extracts."""
 
 from __future__ import annotations
 
@@ -12,30 +12,69 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-USER_AGENT = "MySmartJourney/1.0 (destination-images; educational project)"
+USER_AGENT = (
+    "MySmartJourney/1.0 (travel itinerary app; "
+    "https://github.com/local-dev; contact@example.com)"
+)
 SUMMARY_URL = "https://en.wikipedia.org/api/rest_v1/page/summary/{title}"
 SEARCH_URL = "https://en.wikipedia.org/w/api.php"
+_EXTRACT_MAX_CHARS = 400
 
 
 class WikimediaImageClient:
-    """Resolves real place photos via Wikipedia page summaries."""
+    """Resolves place photos and short descriptions via Wikipedia summaries."""
 
-    def __init__(self) -> None:
-        self._rate_limited = False
+    def __init__(self, *, cooldown_seconds: float = 60.0) -> None:
+        self._rate_limited_until = 0.0
+        self._cooldown_seconds = cooldown_seconds
 
-    async def fetch_images(self, destination_name: str, state: str = "") -> list[str]:
-        """Return up to two image URLs for a Malaysia destination."""
+    @property
+    def rate_limited(self) -> bool:
+        return time.monotonic() < self._rate_limited_until
+
+    def seconds_until_ready(self) -> float:
+        return max(0.0, self._rate_limited_until - time.monotonic())
+
+    def clear_rate_limit(self) -> None:
+        self._rate_limited_until = 0.0
+
+    def _mark_rate_limited(self) -> None:
+        self._rate_limited_until = time.monotonic() + self._cooldown_seconds
+        logger.warning(
+            "Wikipedia rate-limited; cooling down %.0fs",
+            self._cooldown_seconds,
+        )
+
+    async def fetch_summary(
+        self,
+        destination_name: str,
+        state: str = "",
+    ) -> dict[str, Any]:
+        """Return description + images from one Wikipedia summary lookup."""
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             None,
-            self._fetch_images_sync,
+            self._fetch_summary_sync,
             destination_name,
             state,
         )
 
-    def _fetch_images_sync(self, destination_name: str, state: str) -> list[str]:
-        if self._rate_limited:
-            return []
+    async def fetch_images(self, destination_name: str, state: str = "") -> list[str]:
+        """Return up to two image URLs for a Malaysia destination."""
+        summary = await self.fetch_summary(destination_name, state)
+        return list(summary.get("images") or [])
+
+    def _fetch_summary_sync(
+        self,
+        destination_name: str,
+        state: str,
+    ) -> dict[str, Any]:
+        empty = {"description": "", "images": []}
+        if self.rate_limited:
+            wait_s = self.seconds_until_ready() + 1.0
+            logger.info("Wikipedia cooling down — waiting %.0fs", wait_s)
+            time.sleep(wait_s)
+            self.clear_rate_limit()
 
         titles = [
             destination_name,
@@ -44,27 +83,35 @@ class WikimediaImageClient:
         ]
         titles = [title for title in titles if title]
 
-        for title in titles:
-            images = self._summary_images(title)
-            if self._rate_limited:
-                return []
-            if images:
-                return images
-            time.sleep(0.5)
+        for index, title in enumerate(titles):
+            summary = self._summary_payload(title)
+            if self.rate_limited:
+                wait_s = self.seconds_until_ready() + 1.0
+                logger.info("Wikipedia 429 — waiting %.0fs then retry", wait_s)
+                time.sleep(wait_s)
+                self.clear_rate_limit()
+                summary = self._summary_payload(title)
+            if summary["description"] or summary["images"]:
+                return summary
+            if index < len(titles) - 1:
+                time.sleep(0.2)
 
         search_title = self._search_title(f"{destination_name} Malaysia")
-        if self._rate_limited:
-            return []
+        if self.rate_limited:
+            wait_s = self.seconds_until_ready() + 1.0
+            time.sleep(wait_s)
+            self.clear_rate_limit()
+            search_title = self._search_title(f"{destination_name} Malaysia")
         if search_title:
-            time.sleep(0.5)
-            images = self._summary_images(search_title)
-            if images:
-                return images
+            time.sleep(0.2)
+            summary = self._summary_payload(search_title)
+            if summary["description"] or summary["images"]:
+                return summary
 
-        logger.warning("No Wikipedia images found for %s", destination_name)
-        return []
+        logger.warning("No Wikipedia summary found for %s", destination_name)
+        return empty
 
-    def _summary_images(self, title: str) -> list[str]:
+    def _summary_payload(self, title: str) -> dict[str, Any]:
         url = SUMMARY_URL.format(title=quote(title.replace(" ", "_"), safe="()_,%"))
         try:
             response = requests.get(
@@ -73,19 +120,23 @@ class WikimediaImageClient:
                 timeout=20,
             )
             if response.status_code == 404:
-                return []
+                return {"description": "", "images": []}
             if response.status_code == 429:
-                self._rate_limited = True
-                logger.warning("Wikipedia rate-limited; skipping further image lookups")
-                return []
+                self._mark_rate_limited()
+                return {"description": "", "images": []}
             response.raise_for_status()
             data = response.json()
         except Exception:
             logger.warning("Wikipedia summary failed for title=%s", title)
-            return []
+            return {"description": "", "images": []}
 
         if data.get("type") == "disambiguation":
-            return []
+            return {"description": "", "images": []}
+
+        extract = str(data.get("extract") or "").strip()
+        if len(extract) > _EXTRACT_MAX_CHARS:
+            clipped = extract[:_EXTRACT_MAX_CHARS].rsplit(" ", 1)[0].rstrip(" ,;:")
+            extract = f"{clipped}…"
 
         images: list[str] = []
         original = (data.get("originalimage") or {}).get("source")
@@ -94,7 +145,11 @@ class WikimediaImageClient:
             images.append(original)
         if thumb and thumb not in images:
             images.append(thumb)
-        return images[:2]
+
+        return {
+            "description": extract,
+            "images": images[:2],
+        }
 
     def _search_title(self, query: str) -> str | None:
         params: dict[str, Any] = {
@@ -112,8 +167,7 @@ class WikimediaImageClient:
                 timeout=20,
             )
             if response.status_code == 429:
-                self._rate_limited = True
-                logger.warning("Wikipedia rate-limited; skipping further image lookups")
+                self._mark_rate_limited()
                 return None
             response.raise_for_status()
             results = response.json().get("query", {}).get("search", [])

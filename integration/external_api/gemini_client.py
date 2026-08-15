@@ -24,11 +24,31 @@ VALID_CATEGORY_SLUGS = frozenset(
 class GeminiClient:
     """Calls Gemini to generate structured Malaysia destination payloads."""
 
+    _rate_limited_until: float = 0.0
+    _COOLDOWN_SECONDS = 60.0
+
     def __init__(self, api_key: str, model: str) -> None:
         if not api_key:
             raise ValueError("GEMINI_API_KEY is required")
         self._model = model
         self._client = genai.Client(api_key=api_key)
+
+    @classmethod
+    def is_rate_limited(cls) -> bool:
+        return time.monotonic() < cls._rate_limited_until
+
+    @classmethod
+    def clear_rate_limit(cls) -> None:
+        cls._rate_limited_until = 0.0
+
+    @classmethod
+    def _mark_rate_limited(cls, seconds: float | None = None) -> None:
+        delay = cls._COOLDOWN_SECONDS if seconds is None else max(5.0, float(seconds))
+        cls._rate_limited_until = time.monotonic() + delay
+        logger.warning(
+            "Gemini cooldown %.0fs — pause AI calls",
+            delay,
+        )
 
     def generate_destinations_for_state(
         self,
@@ -133,6 +153,8 @@ Rules:
         """Pick catalog stop ids only from the provided candidate list."""
         if not candidates or target_count < 1:
             return []
+        if self.is_rate_limited():
+            raise RuntimeError("Gemini is in rate-limit cooldown")
 
         candidate_lines = []
         for item in candidates:
@@ -184,7 +206,8 @@ Rules:
 - Spread activities so the trip uses all {days} days (at least one stop per day when possible).
 """
 
-        text = self._generate_with_retry(prompt)
+        # Fail fast on 429 so generate can use the rule fallback immediately.
+        text = self._generate_with_retry(prompt, attempts=1)
         payload = self._parse_json(text)
         stops = payload.get("stops")
         if not isinstance(stops, list):
@@ -218,7 +241,57 @@ Rules:
         )
         return cleaned
 
-    def _generate_with_retry(self, prompt: str, *, attempts: int = 8) -> str:
+        return cleaned
+
+    def generate_place_description(
+        self,
+        *,
+        name: str,
+        state: str = "",
+        category_slug: str = "",
+    ) -> str:
+        """Return a short tourism blurb for one Malaysia destination."""
+        place = (name or "").strip()
+        if not place:
+            return ""
+        if self.is_rate_limited():
+            raise RuntimeError("Gemini is in rate-limit cooldown")
+
+        region = (state or "").strip() or "Malaysia"
+        category = (category_slug or "").strip().lower()
+        category_line = (
+            f"- Category hint: {category}\n" if category in VALID_CATEGORY_SLUGS else ""
+        )
+        prompt = f"""You are a Malaysia tourism copywriter.
+Write a visitor description for this real place:
+
+- Name: {place}
+- State / region: {region}
+{category_line}
+Return ONLY valid JSON (no markdown):
+{{
+  "description": "2-3 sentences in English"
+}}
+
+Rules:
+- Be factual and useful for travelers.
+- Do NOT invent precise street addresses, phone numbers, ticket prices, or exact opening hours.
+- Do NOT start with the place name alone as a title line.
+- Keep it natural, specific to this place, and free of marketing fluff.
+- If the place is a mall, park, museum, temple, beach, etc., say so clearly.
+"""
+        text = self._generate_with_retry(prompt, attempts=2)
+        payload = self._parse_json(text)
+        description = str(payload.get("description") or "").strip()
+        # Strip wrapping quotes if the model double-encodes.
+        if description.startswith('"') and description.endswith('"'):
+            description = description[1:-1].strip()
+        return description
+
+    def _generate_with_retry(self, prompt: str, *, attempts: int = 1) -> str:
+        if self.is_rate_limited():
+            raise RuntimeError("Gemini is in rate-limit cooldown")
+
         last_error: Exception | None = None
         for attempt in range(1, attempts + 1):
             try:
@@ -236,14 +309,17 @@ Rules:
                 message = str(exc)
                 if "429" not in message and "RESOURCE_EXHAUSTED" not in message:
                     raise
-                delay = min(90, 15 * attempt)
+                retry_seconds = None
+                match = re.search(r"Please retry in ([0-9.]+)s", message)
+                if match:
+                    retry_seconds = float(match.group(1)) + 2.0
+                self._mark_rate_limited(retry_seconds)
                 logger.warning(
-                    "Gemini rate-limited (attempt %s/%s); sleeping %ss",
+                    "Gemini rate-limited (attempt %s/%s); cooldown set",
                     attempt,
                     attempts,
-                    delay,
                 )
-                time.sleep(delay)
+                break
 
         assert last_error is not None
         raise last_error

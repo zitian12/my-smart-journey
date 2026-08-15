@@ -20,6 +20,8 @@ export type Destination = {
   operating_hours: string;
   images: string[];
   source: string;
+  place_id?: string | null;
+  is_featured?: boolean;
   is_active: boolean;
   created_at?: string | null;
   updated_at?: string | null;
