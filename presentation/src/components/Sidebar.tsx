@@ -2,6 +2,7 @@ import { useRef } from "react";
 import { GoogleLogin, type CredentialResponse } from "@react-oauth/google";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { usePendingCounts } from "../context/PendingCountsContext";
 import { useComingSoonToast } from "./ComingSoonToast";
 
 type MenuItem =
@@ -10,16 +11,23 @@ type MenuItem =
 
 const menuItems: MenuItem[] = [
   { id: "overview", label: "Overview", to: "/dashboard", ready: true },
-  { id: "destinations", label: "Destinations", to: "/destinations", ready: true },
+  { id: "destinations", label: "Destinations", to: "/dashboard/destinations", ready: true },
   { id: "planning", label: "Planning", to: "/dashboard/planning", ready: true },
   { id: "eco-score", label: "Eco Score", to: "/dashboard/eco-score", ready: true },
   { id: "my-trips", label: "My Trips", to: "/dashboard/my-trips", ready: true },
+  { id: "connections", label: "Friends", to: "/dashboard/connections", ready: true },
   { id: "profile", label: "Settings", to: "/dashboard/profile", ready: true },
   { id: "favourites", label: "Favourites", ready: false },
 ];
 
-export function Sidebar() {
+type SidebarProps = {
+  mobileOpen: boolean;
+  onClose: () => void;
+};
+
+export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
   const { user, isAuthenticated, isLoading, loginWithGoogle, logout } = useAuth();
+  const { friendPending, tripPending } = usePendingCounts();
   const { showComingSoon } = useComingSoonToast();
   const navigate = useNavigate();
   const googleLoginRef = useRef<HTMLDivElement>(null);
@@ -35,6 +43,7 @@ export function Sidebar() {
     if (!response.credential) return;
     try {
       await loginWithGoogle(response.credential);
+      onClose();
       navigate("/dashboard", { replace: true });
     } catch (error) {
       console.error("Google sign-in failed:", error);
@@ -42,9 +51,18 @@ export function Sidebar() {
   };
 
   return (
-    <aside className="flex h-full w-64 shrink-0 flex-col border-r border-leaf/15 bg-white">
-      <div className="border-b border-leaf/10 px-5 py-5">
-        <NavLink to="/" className="no-underline">
+    <aside
+      id="dashboard-sidebar"
+      className={[
+        "flex h-svh w-64 shrink-0 flex-col border-r border-leaf/15 bg-white",
+        "fixed inset-y-0 left-0 z-50 transition-transform duration-200 ease-out",
+        "lg:static lg:z-auto lg:translate-x-0",
+        "print:hidden",
+        mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
+      ].join(" ")}
+    >
+      <div className="flex items-start justify-between gap-2 border-b border-leaf/10 px-5 py-5">
+        <NavLink to="/" className="min-w-0 no-underline" onClick={onClose}>
           <p className="font-display text-lg font-semibold tracking-tight text-forest">
             My Smart Journey
           </p>
@@ -52,18 +70,27 @@ export function Sidebar() {
             Dashboard
           </p>
         </NavLink>
+        <button
+          type="button"
+          onClick={onClose}
+          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-forest transition-colors hover:bg-mist focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-leaf lg:hidden"
+          aria-label="Close navigation"
+        >
+          <CloseIcon />
+        </button>
       </div>
 
-      <nav className="flex-1 space-y-1 px-3 py-4" aria-label="Dashboard navigation">
+      <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4" aria-label="Dashboard navigation">
         {menuItems.map((item) =>
           item.ready ? (
             <NavLink
               key={item.id}
               to={item.to}
-              end
+              end={item.to === "/dashboard"}
+              onClick={onClose}
               className={({ isActive }) =>
                 [
-                  "block rounded-lg px-3 py-2.5 text-sm font-medium no-underline transition-colors",
+                  "flex items-center rounded-lg px-3 py-2.5 text-sm font-medium no-underline transition-colors",
                   isActive
                     ? "bg-leaf/10 text-forest"
                     : "text-stone hover:bg-mist hover:text-forest",
@@ -71,12 +98,25 @@ export function Sidebar() {
               }
             >
               {item.label}
+              {item.id === "connections" && friendPending > 0 ? (
+                <span className="ml-2 inline-flex min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 text-[11px] font-semibold text-white">
+                  {friendPending}
+                </span>
+              ) : null}
+              {item.id === "my-trips" && tripPending > 0 ? (
+                <span className="ml-2 inline-flex min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 text-[11px] font-semibold text-white">
+                  {tripPending}
+                </span>
+              ) : null}
             </NavLink>
           ) : (
             <button
               key={item.id}
               type="button"
-              onClick={() => showComingSoon(item.label)}
+              onClick={() => {
+                showComingSoon(item.label);
+                onClose();
+              }}
               className="block w-full rounded-lg px-3 py-2.5 text-left text-sm font-medium text-stone transition-colors hover:bg-mist hover:text-forest"
             >
               {item.label}
@@ -90,6 +130,7 @@ export function Sidebar() {
           <div className="space-y-3">
             <NavLink
               to="/dashboard/profile"
+              onClick={onClose}
               className="flex items-center gap-3 rounded-lg p-1 no-underline transition-colors hover:bg-mist"
             >
               {user.profile_picture ? (
@@ -141,5 +182,21 @@ export function Sidebar() {
         )}
       </div>
     </aside>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-5 w-5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      aria-hidden
+    >
+      <path d="M6 6l12 12M18 6L6 18" />
+    </svg>
   );
 }

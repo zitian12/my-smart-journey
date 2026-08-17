@@ -53,6 +53,39 @@ body {
   animation: hero-zoom 8s ease-out both;
 }
 
+@keyframes daily-progress {
+  from {
+    width: 0%;
+  }
+  to {
+    width: 100%;
+  }
+}
+
+@utility animate-daily-progress {
+  animation: daily-progress 5s linear forwards;
+}
+
 .leaflet-container {
   font-family: var(--font-sans);
+}
+
+@media print {
+  html,
+  body,
+  #root {
+    height: auto !important;
+    min-height: 0;
+    overflow: visible !important;
+    background: white;
+  }
+
+  body {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .leaflet-container {
+    display: none !important;
+  }
 }

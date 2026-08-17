@@ -7,8 +7,10 @@ import {
   type InputHTMLAttributes,
   type TextareaHTMLAttributes,
 } from "react";
+import { createPortal } from "react-dom";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { getItinerary, listItineraries } from "../services/itineraryApi";
 import {
   deleteMyAccount,
   fetchMyProfile,
@@ -16,6 +18,7 @@ import {
   updateMyProfile,
   uploadMyAvatar,
 } from "../services/profileApi";
+import type { SavedItineraryDetail } from "../types/itinerary";
 
 type SettingsTab = "general" | "account";
 
@@ -37,6 +40,22 @@ function formatToday(): string {
     day: "numeric",
     year: "numeric",
   });
+}
+
+function uniqueDestinationCount(details: Array<SavedItineraryDetail | null>): number {
+  const keys = new Set<string>();
+  for (const detail of details) {
+    if (!detail) continue;
+    for (const place of detail.places ?? []) {
+      const key = (place.id || place.name || "").trim().toLowerCase();
+      if (key) keys.add(key);
+    }
+    for (const stop of detail.itinerary?.destinations ?? []) {
+      const key = (stop.id || stop.name || "").trim().toLowerCase();
+      if (key) keys.add(key);
+    }
+  }
+  return keys.size;
 }
 
 function FieldLabel({ children }: { children: string }) {
@@ -112,11 +131,25 @@ export function ProfilePage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [stats, setStats] = useState({
+    trips: "…",
+    destinations: "…",
+    ecoScore: "…",
+  });
 
   const handleAuthFailure = async () => {
     setError("Session expired. Please sign in again.");
     await logout();
   };
+
+  useEffect(() => {
+    if (!showDeleteConfirm) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, [showDeleteConfirm]);
 
   useEffect(() => {
     if (!isAuthenticated || !user) {
@@ -168,6 +201,46 @@ export function ProfilePage() {
       cancelled = true;
     };
   }, [isAuthenticated, getAccessToken, updateUser, logout]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const token = getAccessToken();
+    if (!token) return;
+
+    let cancelled = false;
+    setStats({ trips: "…", destinations: "…", ecoScore: "…" });
+
+    void (async () => {
+      try {
+        const trips = await listItineraries(token);
+        if (cancelled) return;
+        if (trips.length === 0) {
+          setStats({ trips: "0", destinations: "0", ecoScore: "—" });
+          return;
+        }
+
+        const details = await Promise.all(
+          trips.map((trip) => getItinerary(token, trip.id).catch(() => null)),
+        );
+        if (cancelled) return;
+
+        const ecoTotal = trips.reduce((sum, trip) => sum + (trip.eco_score || 0), 0);
+        setStats({
+          trips: String(trips.length),
+          destinations: String(uniqueDestinationCount(details)),
+          ecoScore: String(Math.round(ecoTotal / trips.length)),
+        });
+      } catch {
+        if (!cancelled) {
+          setStats({ trips: "—", destinations: "—", ecoScore: "—" });
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, getAccessToken]);
 
   if (!isAuthenticated || !user) {
     return <Navigate to="/dashboard" replace />;
@@ -430,9 +503,9 @@ export function ProfilePage() {
                     <h3 className="text-base font-semibold text-ink">Your Journey Stats</h3>
                     <div className="mt-3 grid gap-3 sm:grid-cols-3">
                       {[
-                        { label: "Trips planned", value: "0" },
-                        { label: "Destinations", value: "0" },
-                        { label: "Eco score", value: "—" },
+                        { label: "Trips planned", value: stats.trips },
+                        { label: "Destinations", value: stats.destinations },
+                        { label: "Eco score", value: stats.ecoScore },
                       ].map((stat) => (
                         <div
                           key={stat.label}
@@ -475,21 +548,28 @@ export function ProfilePage() {
                   </div>
                 </section>
 
-                <section className="rounded-2xl border border-red-200 bg-red-50/60 p-5">
-                  <h3 className="text-base font-semibold text-red-800">Danger Zone</h3>
-                  <p className="mt-1 text-sm text-red-700/80">
-                    Permanently remove your account and saved data.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setError(null);
-                      setShowDeleteConfirm(true);
-                    }}
-                    className="mt-4 inline-flex items-center gap-2 rounded-xl border border-red-200 bg-white px-3 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50"
-                  >
-                    Delete Account
-                  </button>
+                <section className="rounded-2xl border border-red-200/80 bg-gradient-to-br from-red-50 to-white p-5 sm:p-6">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <h3 className="text-base font-semibold text-red-800">
+                        Danger zone
+                      </h3>
+                      <p className="mt-1 max-w-md text-sm leading-relaxed text-red-700/75">
+                        Permanently remove your account, trips, and saved data.
+                        This cannot be undone.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setError(null);
+                        setShowDeleteConfirm(true);
+                      }}
+                      className="shrink-0 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700"
+                    >
+                      Delete account
+                    </button>
+                  </div>
                 </section>
               </>
             )}
@@ -524,61 +604,75 @@ export function ProfilePage() {
         </div>
       )}
 
-      {showDeleteConfirm ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-ink/55 px-4 backdrop-blur-[2px]"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="delete-account-title"
-          onClick={() => {
-            if (!isDeleting) setShowDeleteConfirm(false);
-          }}
-        >
-          <div
-            className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl ring-1 ring-red-100"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-50 text-sm font-semibold text-red-700">
-                !
-              </div>
-              <div className="min-w-0 flex-1">
-                <h2
-                  id="delete-account-title"
-                  className="text-base font-semibold text-ink"
-                >
-                  Delete account?
-                </h2>
-                <p className="mt-1.5 text-sm leading-relaxed text-stone">
-                  This permanently removes{" "}
-                  <span className="break-all font-medium text-ink">{user.email}</span>
-                  {" "}and cannot be undone.
-                </p>
-              </div>
-            </div>
-            <div className="mt-4 grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                disabled={isDeleting}
-                onClick={() => setShowDeleteConfirm(false)}
-                className="rounded-xl border border-leaf/25 px-3 py-2.5 text-sm font-medium text-forest transition hover:bg-mist disabled:opacity-50"
+      {showDeleteConfirm
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[80] flex items-center justify-center bg-black/55 px-4 backdrop-blur-sm"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="delete-account-title"
+              onClick={() => {
+                if (!isDeleting) setShowDeleteConfirm(false);
+              }}
+            >
+              <div
+                className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-black/5"
+                onClick={(event) => event.stopPropagation()}
               >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={isDeleting}
-                onClick={() => {
-                  void handleDeleteAccount();
-                }}
-                className="rounded-xl bg-red-600 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-red-700 disabled:opacity-50"
-              >
-                {isDeleting ? "Deleting…" : "Delete"}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+                <div className="border-b border-red-100 bg-gradient-to-br from-red-50 to-white px-6 pb-5 pt-6">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-red-100 text-red-700 ring-8 ring-red-50">
+                    <svg
+                      viewBox="0 0 24 24"
+                      className="h-6 w-6"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden
+                    >
+                      <path d="M12 9v4m0 4h.01M10.3 4.3 2.8 17.2A2 2 0 0 0 4.5 20h15a2 2 0 0 0 1.7-2.8L13.7 4.3a2 2 0 0 0-3.4 0Z" />
+                    </svg>
+                  </div>
+                  <h2
+                    id="delete-account-title"
+                    className="mt-4 font-display text-xl font-semibold tracking-tight text-ink"
+                  >
+                    Delete account?
+                  </h2>
+                  <p className="mt-2 text-sm leading-relaxed text-stone">
+                    This permanently removes{" "}
+                    <span className="break-all font-semibold text-ink">
+                      {user.email}
+                    </span>{" "}
+                    and all saved trips. This cannot be undone.
+                  </p>
+                </div>
+                <div className="flex flex-col-reverse gap-2 px-6 py-5 sm:flex-row sm:justify-end">
+                  <button
+                    type="button"
+                    disabled={isDeleting}
+                    onClick={() => setShowDeleteConfirm(false)}
+                    className="rounded-xl px-4 py-2.5 text-sm font-medium text-stone ring-1 ring-forest/15 transition hover:bg-mist disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isDeleting}
+                    onClick={() => {
+                      void handleDeleteAccount();
+                    }}
+                    className="rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-red-700 disabled:opacity-50"
+                  >
+                    {isDeleting ? "Deleting…" : "Yes, delete account"}
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

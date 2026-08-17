@@ -12,7 +12,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from database.connection import verify_connection
-from integration.repositories import UserRepository
+from integration.repositories import (
+    ConnectionRepository,
+    DailyRepository,
+    DestinationCategoryRepository,
+    DestinationRepository,
+    ItineraryRepository,
+    TripShareRepository,
+    UserRepository,
+)
 from routers import api_router
 
 logging.basicConfig(
@@ -23,6 +31,7 @@ logging.basicConfig(
 _UPLOADS_DIR = Path(__file__).resolve().parent / "uploads"
 _UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 (_UPLOADS_DIR / "avatars").mkdir(parents=True, exist_ok=True)
+(_UPLOADS_DIR / "dailies").mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="My Smart Journey")
 
@@ -43,6 +52,24 @@ async def startup() -> None:
     await verify_connection()
     user_repository = UserRepository()
     await user_repository.ensure_indexes()
+
+    category_repository = DestinationCategoryRepository()
+    await category_repository.ensure_indexes()
+
+    destination_repository = DestinationRepository()
+    await destination_repository.ensure_indexes()
+
+    itinerary_repository = ItineraryRepository()
+    await itinerary_repository.ensure_indexes()
+
+    connection_repository = ConnectionRepository()
+    await connection_repository.ensure_indexes()
+
+    trip_share_repository = TripShareRepository()
+    await trip_share_repository.ensure_indexes()
+
+    daily_repository = DailyRepository()
+    await daily_repository.ensure_indexes()
 
 
 @app.get("/")

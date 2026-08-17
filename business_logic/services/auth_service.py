@@ -36,6 +36,7 @@ class AuthService:
             token,
             requests.Request(),
             GOOGLE_CLIENT_ID,
+            clock_skew_in_seconds=60,
         )
 
     def create_access_token(self, user_id: str, email: str) -> str:

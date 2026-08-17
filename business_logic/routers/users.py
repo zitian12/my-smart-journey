@@ -2,11 +2,13 @@
 
 import logging
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 
 from deps import get_current_user
 from integration.repositories import UserRepository
+from schemas.connections import UserSearchResponse
 from schemas.profile import ProfileUpdateRequest, UserProfileResponse
+from services.connection_service import ConnectionService
 from services.profile_service import ProfileService
 
 logger = logging.getLogger(__name__)
@@ -15,6 +17,16 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 _user_repository = UserRepository()
 _profile_service = ProfileService(_user_repository)
+_connection_service = ConnectionService(user_repository=_user_repository)
+
+
+@router.get("/search", response_model=UserSearchResponse)
+async def search_users(
+    q: str = Query("", max_length=100),
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    """Search registered users by name, nickname, or email."""
+    return await _connection_service.search_users(current_user, q)
 
 
 @router.get("/me", response_model=UserProfileResponse)
