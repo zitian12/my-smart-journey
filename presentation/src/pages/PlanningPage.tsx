@@ -1,19 +1,31 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { DestinationImage } from "../components/DestinationImage";
 import { MalaysiaMap, type MapMarker } from "../components/MalaysiaMap";
-import { fetchDestinationCategories } from "../services/destinationApi";
+import { useAuth } from "../context/AuthContext";
+import {
+  fetchDestinationCategories,
+  fetchDestinations,
+} from "../services/destinationApi";
+import {
+  listFavouriteFolders,
+  listFolderItems,
+} from "../services/favouriteApi";
 import {
   fetchAddressSuggestions,
   type AddressSuggestion,
 } from "../services/geocodeApi";
 import { generateItinerary } from "../services/itineraryApi";
-import type { DestinationCategory } from "../types/destination";
+import type { Destination, DestinationCategory } from "../types/destination";
+import type { FavouriteFolder } from "../types/favourite";
 import type {
   ItineraryGenerateRequest,
   ItineraryResultState,
   PlaceCoords,
 } from "../types/itinerary";
 import { ITINERARY_RESULT_STORAGE_KEY } from "../types/itinerary";
+
+type PlannerMode = "system" | "manual";
 
 type PreferredMode = NonNullable<ItineraryGenerateRequest["preferred_mode"]>;
 
@@ -82,6 +94,34 @@ function pushRecent(
     0,
     MAX_RECENT,
   );
+}
+
+function destinationToStop(destination: Destination): PlaceCoords | null {
+  if (
+    typeof destination.latitude !== "number" ||
+    typeof destination.longitude !== "number"
+  ) {
+    return null;
+  }
+  return {
+    id: destination.id,
+    name: destination.destination_name,
+    latitude: destination.latitude,
+    longitude: destination.longitude,
+    image: destination.images[0] ?? null,
+    category_slug: destination.category_slug ?? null,
+    state: destination.state || null,
+  };
+}
+
+function mergeStops(current: PlaceCoords[], incoming: PlaceCoords[]): PlaceCoords[] {
+  const next = new Map(current.map((stop) => [stop.id, stop]));
+  for (const stop of incoming) {
+    if (!next.has(stop.id)) {
+      next.set(stop.id, stop);
+    }
+  }
+  return Array.from(next.values());
 }
 
 function FieldShell({ children }: { children: ReactNode }) {
@@ -287,8 +327,128 @@ function AddressPicker({
   );
 }
 
+function CatalogStopPicker({
+  excludeIds,
+  onPick,
+  disabled,
+}: {
+  excludeIds: string[];
+  onPick: (place: PlaceCoords) => void;
+  disabled?: boolean;
+}) {
+  const [query, setQuery] = useState("");
+  const [debounced, setDebounced] = useState("");
+  const [results, setResults] = useState<Destination[]>([]);
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const excludeKey = excludeIds.slice().sort().join("|");
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebounced(query.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [query]);
+
+  useEffect(() => {
+    if (!open || debounced.length < 1) {
+      setResults([]);
+      return;
+    }
+    const excluded = new Set(excludeKey ? excludeKey.split("|") : []);
+    let cancelled = false;
+    async function search() {
+      setLoading(true);
+      try {
+        const data = await fetchDestinations({ name: debounced });
+        if (!cancelled) {
+          setResults(
+            data
+              .filter((item) => destinationToStop(item) && !excluded.has(item.id))
+              .slice(0, 8),
+          );
+        }
+      } catch {
+        if (!cancelled) setResults([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    void search();
+    return () => {
+      cancelled = true;
+    };
+  }, [debounced, excludeKey, open]);
+
+  return (
+    <div className="relative">
+      <FieldShell>
+        <input
+          type="search"
+          value={query}
+          disabled={disabled}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          placeholder="Search catalog destinations…"
+          className="w-full bg-transparent text-sm text-ink outline-none placeholder:text-stone/60 disabled:opacity-50"
+        />
+      </FieldShell>
+      {open && (loading || results.length > 0 || debounced) ? (
+        <ul className="absolute z-20 mt-2 max-h-56 w-full overflow-auto rounded-xl bg-white py-1 shadow-lg ring-1 ring-forest/10">
+          {loading ? (
+            <li className="px-3 py-2 text-sm text-stone">Searching…</li>
+          ) : results.length === 0 ? (
+            <li className="px-3 py-2 text-sm text-stone">
+              No mapped destinations found
+            </li>
+          ) : (
+            results.map((item) => (
+              <li key={item.id}>
+                <button
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => {
+                    const stop = destinationToStop(item);
+                    if (!stop) return;
+                    onPick(stop);
+                    setQuery("");
+                    setOpen(false);
+                  }}
+                  className="flex w-full items-start gap-3 px-3 py-2.5 text-left hover:bg-mist disabled:opacity-50"
+                >
+                  <div className="h-10 w-10 shrink-0 overflow-hidden rounded-lg bg-mist">
+                    <DestinationImage
+                      images={item.images}
+                      alt={item.destination_name}
+                    />
+                  </div>
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-medium text-ink">
+                      {item.destination_name}
+                    </span>
+                    <span className="block truncate text-xs text-stone">
+                      {[item.state, item.category_name].filter(Boolean).join(" · ")}
+                    </span>
+                  </span>
+                </button>
+              </li>
+            ))
+          )}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 export function PlanningPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { isAuthenticated, getAccessToken } = useAuth();
+  const plannerMode: PlannerMode =
+    searchParams.get("mode") === "manual" ? "manual" : "system";
+  const folderParam = searchParams.get("folder");
+  const appliedFolderRef = useRef<string | null>(null);
   const [start, setStart] = useState<PlaceCoords | null>(null);
   const [end, setEnd] = useState<PlaceCoords | null>(null);
   const [recent, setRecent] = useState<AddressSuggestion[]>(() => loadRecent());
@@ -302,6 +462,11 @@ export function PlanningPage() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [nightsTouched, setNightsTouched] = useState(false);
+  const [manualStops, setManualStops] = useState<PlaceCoords[]>([]);
+  const [folders, setFolders] = useState<FavouriteFolder[]>([]);
+  const [folderId, setFolderId] = useState("");
+  const [foldersError, setFoldersError] = useState<string | null>(null);
+  const [folderBusy, setFolderBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -333,6 +498,122 @@ export function PlanningPage() {
     }
   }, [days, nightsTouched]);
 
+  useEffect(() => {
+    if (plannerMode !== "manual" || !isAuthenticated) {
+      return;
+    }
+    let cancelled = false;
+    async function loadFolders() {
+      const token = getAccessToken();
+      if (!token) return;
+      try {
+        const data = await listFavouriteFolders(token);
+        if (!cancelled) {
+          setFolders(data);
+          setFoldersError(null);
+          setFolderId((current) => current || folderParam || data[0]?.id || "");
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setFolders([]);
+          setFoldersError(
+            err instanceof Error ? err.message : "Failed to load folders",
+          );
+        }
+      }
+    }
+    void loadFolders();
+    return () => {
+      cancelled = true;
+    };
+  }, [folderParam, getAccessToken, isAuthenticated, plannerMode]);
+
+  useEffect(() => {
+    if (plannerMode !== "manual" || !folderParam || !isAuthenticated) {
+      return;
+    }
+    if (appliedFolderRef.current === folderParam) {
+      return;
+    }
+    const token = getAccessToken();
+    if (!token || !folderParam) return;
+    const folderIdToLoad = folderParam;
+    const accessToken = token;
+    let cancelled = false;
+    async function loadFolderStops() {
+      setFolderBusy(true);
+      try {
+        const items = await listFolderItems(accessToken, folderIdToLoad);
+        if (cancelled) return;
+        const stops = items
+          .map(destinationToStop)
+          .filter((item): item is PlaceCoords => item !== null);
+        if (stops.length === 0) {
+          setFormError("This folder has no mapped destinations to add.");
+        } else {
+          setManualStops((current) => mergeStops(current, stops));
+        }
+        setFolderId(folderIdToLoad);
+        appliedFolderRef.current = folderIdToLoad;
+      } catch (err) {
+        if (!cancelled) {
+          setFormError(
+            err instanceof Error ? err.message : "Failed to load folder destinations",
+          );
+        }
+      } finally {
+        if (!cancelled) setFolderBusy(false);
+      }
+    }
+    void loadFolderStops();
+    return () => {
+      cancelled = true;
+    };
+  }, [folderParam, getAccessToken, isAuthenticated, plannerMode]);
+
+  const setPlannerMode = (next: PlannerMode) => {
+    const params = new URLSearchParams(searchParams);
+    if (next === "manual") {
+      params.set("mode", "manual");
+    } else {
+      params.delete("mode");
+      params.delete("folder");
+    }
+    setSearchParams(params, { replace: true });
+  };
+
+  const addManualStop = (place: PlaceCoords) => {
+    setManualStops((current) => mergeStops(current, [place]));
+  };
+
+  const removeManualStop = (id: string) => {
+    setManualStops((current) => current.filter((stop) => stop.id !== id));
+  };
+
+  const addAllFromFolder = async () => {
+    const token = getAccessToken();
+    if (!token || !folderId) return;
+    setFolderBusy(true);
+    setFormError(null);
+    try {
+      const items = await listFolderItems(token, folderId);
+      const stops = items
+        .map(destinationToStop)
+        .filter((item): item is PlaceCoords => item !== null);
+      if (stops.length === 0) {
+        setFormError("This folder has no mapped destinations to add.");
+        return;
+      }
+      setManualStops((current) => mergeStops(current, stops));
+    } catch (err) {
+      setFormError(
+        err instanceof Error ? err.message : "Failed to add folder destinations",
+      );
+    } finally {
+      setFolderBusy(false);
+    }
+  };
+
   const mapMarkers: MapMarker[] = useMemo(() => {
     const markers: MapMarker[] = [];
     if (start) {
@@ -355,8 +636,20 @@ export function PlanningPage() {
         kind: "end",
       });
     }
+    if (plannerMode === "manual") {
+      manualStops.forEach((stop, index) => {
+        markers.push({
+          id: `stop-${stop.id}`,
+          name: stop.name,
+          lat: stop.latitude,
+          lng: stop.longitude,
+          label: index + 1,
+          kind: "stop",
+        });
+      });
+    }
     return markers;
-  }, [start, end]);
+  }, [end, manualStops, plannerMode, start]);
 
   const toggleInterest = (slug: string) => {
     setInterests((prev) =>
@@ -411,6 +704,10 @@ export function PlanningPage() {
       setFormError("Hours per day must be between 1 and 16.");
       return;
     }
+    if (plannerMode === "manual" && manualStops.length === 0) {
+      setFormError("Add at least one stop from a folder or catalog search.");
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -430,8 +727,19 @@ export function PlanningPage() {
         days,
         nights,
         hours_per_day: hoursPerDay,
-        interests,
+        interests: plannerMode === "system" ? interests : [],
         preferred_mode: preferredMode,
+        ...(plannerMode === "manual"
+          ? {
+              destinations: manualStops.map((stop) => ({
+                id: stop.id,
+                name: stop.name,
+                latitude: stop.latitude,
+                longitude: stop.longitude,
+                category_slug: stop.category_slug ?? null,
+              })),
+            }
+          : {}),
       });
 
       const resolvedStart = toEndpointPlace(
@@ -487,14 +795,37 @@ export function PlanningPage() {
             Trip planner
           </p>
           <h1 className="mt-1 font-display text-3xl font-semibold tracking-tight text-forest sm:text-4xl">
-            Plan your route
+            {plannerMode === "manual" ? "Manual Planner" : "System Planner"}
           </h1>
           <p className="mt-2 max-w-xl text-sm text-stone">
-            Pick or search a start and end in Malaysia. Pins appear on the map
-            as soon as you select them. Then set days, nights, hours per day,
-            transport, and optional interests; the system picks catalog stops
-            along your route.
+            {plannerMode === "manual"
+              ? "Choose your own stops from a favourites folder or catalog search. Then set start, end, days, nights, hours per day, and transport — the system orders the route."
+              : "Pick start and end, then set days, nights, hours per day, transport, and optional interests. The system picks catalog stops along your route."}
           </p>
+          <div className="mt-4 inline-flex rounded-xl bg-white p-1 ring-1 ring-forest/10">
+            <button
+              type="button"
+              onClick={() => setPlannerMode("system")}
+              className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+                plannerMode === "system"
+                  ? "bg-forest text-white"
+                  : "text-stone hover:bg-mist hover:text-forest"
+              }`}
+            >
+              System Planner
+            </button>
+            <button
+              type="button"
+              onClick={() => setPlannerMode("manual")}
+              className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+                plannerMode === "manual"
+                  ? "bg-forest text-white"
+                  : "text-stone hover:bg-mist hover:text-forest"
+              }`}
+            >
+              Manual Planner
+            </button>
+          </div>
         </div>
         <div className="rounded-xl bg-white px-4 py-3 text-sm text-stone ring-1 ring-forest/10">
           <span className="font-semibold text-forest">{days}</span> day
@@ -598,48 +929,148 @@ export function PlanningPage() {
             </label>
           </div>
 
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-sm font-semibold text-ink">
-                Interests (optional)
-              </h2>
-              <span className="rounded-full bg-leaf/10 px-2.5 py-0.5 text-xs font-medium text-leaf">
-                Soft preference · catalog categories
-              </span>
-            </div>
-            {categoriesError ? (
-              <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">
-                {categoriesError}
+          {plannerMode === "system" ? (
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-sm font-semibold text-ink">
+                  Interests (optional)
+                </h2>
+                <span className="rounded-full bg-leaf/10 px-2.5 py-0.5 text-xs font-medium text-leaf">
+                  Soft preference · catalog categories
+                </span>
+              </div>
+              {categoriesError ? (
+                <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {categoriesError}
+                </p>
+              ) : null}
+              <div className="flex flex-wrap gap-2">
+                {categories.length === 0 && !categoriesError ? (
+                  <p className="text-sm text-stone">Loading categories…</p>
+                ) : (
+                  categories.map((category) => {
+                    const selected = interests.includes(category.slug);
+                    return (
+                      <button
+                        key={category.id}
+                        type="button"
+                        onClick={() => toggleInterest(category.slug)}
+                        className={`rounded-full px-3 py-1.5 text-sm font-medium transition ${
+                          selected
+                            ? "bg-forest text-white"
+                            : "bg-mist text-ink ring-1 ring-forest/10 hover:bg-leaf/10"
+                        }`}
+                      >
+                        {category.name}
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+              <p className="text-xs text-stone">
+                Stops are chosen automatically from the destination catalog along
+                your route. Interests only bias the mix.
               </p>
-            ) : null}
-            <div className="flex flex-wrap gap-2">
-              {categories.length === 0 && !categoriesError ? (
-                <p className="text-sm text-stone">Loading categories…</p>
-              ) : (
-                categories.map((category) => {
-                  const selected = interests.includes(category.slug);
-                  return (
-                    <button
-                      key={category.id}
-                      type="button"
-                      onClick={() => toggleInterest(category.slug)}
-                      className={`rounded-full px-3 py-1.5 text-sm font-medium transition ${
-                        selected
-                          ? "bg-forest text-white"
-                          : "bg-mist text-ink ring-1 ring-forest/10 hover:bg-leaf/10"
-                      }`}
-                    >
-                      {category.name}
-                    </button>
-                  );
-                })
-              )}
             </div>
-            <p className="text-xs text-stone">
-              Stops are chosen automatically from the destination catalog along
-              your route. Interests only bias the mix.
-            </p>
-          </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-sm font-semibold text-ink">Your stops</h2>
+                <span className="rounded-full bg-leaf/10 px-2.5 py-0.5 text-xs font-medium text-leaf">
+                  {manualStops.length} selected
+                </span>
+              </div>
+              {!isAuthenticated ? (
+                <p className="rounded-xl bg-mist/60 px-3 py-2 text-sm text-stone">
+                  Sign in to add every destination from a favourites folder.
+                  Catalog search still works without signing in.
+                </p>
+              ) : (
+                <div className="flex flex-wrap items-end gap-3">
+                  <label className="min-w-[180px] flex-1 space-y-2">
+                    <span className="text-sm font-medium text-stone">
+                      Favourites folder
+                    </span>
+                    <FieldShell>
+                      <select
+                        value={folderId}
+                        onChange={(e) => setFolderId(e.target.value)}
+                        className="w-full bg-transparent text-sm font-medium text-forest outline-none"
+                      >
+                        {folders.length === 0 ? (
+                          <option value="">No folders yet</option>
+                        ) : (
+                          folders.map((folder) => (
+                            <option key={folder.id} value={folder.id}>
+                              {folder.name} ({folder.item_count})
+                            </option>
+                          ))
+                        )}
+                      </select>
+                    </FieldShell>
+                  </label>
+                  <button
+                    type="button"
+                    disabled={!folderId || folderBusy}
+                    onClick={() => void addAllFromFolder()}
+                    className="rounded-xl bg-leaf/15 px-4 py-2.5 text-sm font-medium text-forest transition hover:bg-leaf/25 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {folderBusy ? "Adding…" : "Add all from folder"}
+                  </button>
+                </div>
+              )}
+              {foldersError ? (
+                <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {foldersError}
+                </p>
+              ) : null}
+              <div className="space-y-2">
+                <span className="text-sm font-medium text-stone">
+                  Add from catalog
+                </span>
+                <CatalogStopPicker
+                  excludeIds={manualStops.map((stop) => stop.id)}
+                  onPick={addManualStop}
+                  disabled={submitting}
+                />
+              </div>
+              {manualStops.length === 0 ? (
+                <p className="text-sm text-stone">
+                  No stops yet. Add a folder or search the catalog.
+                </p>
+              ) : (
+                <ul className="divide-y divide-forest/5 rounded-xl ring-1 ring-forest/10">
+                  {manualStops.map((stop, index) => (
+                    <li
+                      key={stop.id}
+                      className="flex items-center justify-between gap-3 px-3 py-2.5"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-ink">
+                          {index + 1}. {stop.name}
+                        </p>
+                        <p className="truncate text-xs text-stone">
+                          {[stop.state, stop.category_slug]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeManualStop(stop.id)}
+                        className="shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-stone hover:bg-mist hover:text-forest"
+                      >
+                        Remove
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="text-xs text-stone">
+                The system will order these stops and pack them into your days.
+              </p>
+            </div>
+          )}
 
           {formError ? (
             <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700 ring-1 ring-red-100">
@@ -658,6 +1089,7 @@ export function PlanningPage() {
                 setHoursPerDay(8);
                 setNightsTouched(false);
                 setInterests([]);
+                setManualStops([]);
                 setFormError(null);
               }}
               className="rounded-xl px-4 py-2.5 text-sm font-medium text-stone transition hover:bg-mist hover:text-forest"
@@ -670,7 +1102,11 @@ export function PlanningPage() {
               onClick={() => void onGenerate()}
               className="inline-flex items-center gap-2 rounded-xl bg-forest px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-leaf disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {submitting ? "Planning…" : "Let system plan"}
+              {submitting
+                ? "Planning…"
+                : plannerMode === "manual"
+                  ? "Plan my stops"
+                  : "Let system plan"}
               <span aria-hidden>→</span>
             </button>
           </div>
@@ -683,7 +1119,9 @@ export function PlanningPage() {
               <p className="text-xs text-stone">
                 {mapMarkers.length === 0
                   ? "Select start and end to preview pins."
-                  : `${mapMarkers.length} pin${mapMarkers.length === 1 ? "" : "s"} · stops chosen after generate`}
+                  : plannerMode === "manual"
+                    ? `${mapMarkers.length} pin${mapMarkers.length === 1 ? "" : "s"} · ${manualStops.length} stop${manualStops.length === 1 ? "" : "s"}`
+                    : `${mapMarkers.length} pin${mapMarkers.length === 1 ? "" : "s"} · stops chosen after generate`}
               </p>
             </div>
             <MalaysiaMap

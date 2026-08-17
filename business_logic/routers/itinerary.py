@@ -14,6 +14,7 @@ from schemas.itinerary import (
     ItineraryGenerateResponse,
     ItineraryRecomputeRequest,
     ItinerarySaveRequest,
+    PlaceInput,
     RenameItineraryRequest,
     SavedItineraryDetail,
     SavedItinerarySummary,
@@ -29,6 +30,25 @@ _MIN_START_END_KM = 0.2
 _ADDRESS_NOT_FOUND = (
     "Could not find that address in Malaysia. Try a fuller street or area name."
 )
+
+
+def _mapped_user_destinations(places: list[PlaceInput]) -> list[dict[str, Any]]:
+    """Keep catalog/folder stops that already have coordinates. Never geocode."""
+    destinations: list[dict[str, Any]] = []
+    for place in places:
+        dump = place.model_dump()
+        lat = dump.get("latitude")
+        lng = dump.get("longitude")
+        if lat is None or lng is None:
+            continue
+        destinations.append(
+            {
+                **dump,
+                "latitude": float(lat),
+                "longitude": float(lng),
+            }
+        )
+    return destinations
 
 
 async def _resolve_user_place(place: dict[str, Any]) -> dict[str, Any]:
@@ -62,21 +82,23 @@ async def _resolve_user_place(place: dict[str, Any]) -> dict[str, Any]:
 )
 async def generate_itinerary(body: ItineraryGenerateRequest) -> dict:
     """Generate a personalised itinerary from trip constraints + catalog pick."""
-    category_repo = DestinationCategoryRepository()
-    categories = await category_repo.list_active()
-    valid_slugs = {str(c.get("slug") or "").lower() for c in categories if c.get("slug")}
-
     interests = [str(i).strip().lower() for i in body.interests if str(i).strip()]
-    invalid = sorted({slug for slug in interests if slug not in valid_slugs})
-    if invalid:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                "Invalid interest slug(s): "
-                + ", ".join(invalid)
-                + ". Use active destination category slugs."
-            ),
-        )
+    if interests:
+        category_repo = DestinationCategoryRepository()
+        categories = await category_repo.list_active()
+        valid_slugs = {
+            str(c.get("slug") or "").lower() for c in categories if c.get("slug")
+        }
+        invalid = sorted({slug for slug in interests if slug not in valid_slugs})
+        if invalid:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Invalid interest slug(s): "
+                    + ", ".join(invalid)
+                    + ". Use active destination category slugs."
+                ),
+            )
 
     start = body.start.model_dump()
     end = body.end.model_dump()
@@ -100,22 +122,30 @@ async def generate_itinerary(body: ItineraryGenerateRequest) -> dict:
             detail="Start and end are too close. Choose two different places.",
         )
 
-    selector = ItineraryPoiSelectionService()
-    try:
-        destinations = await selector.select_places(
-            start=start,
-            end=end,
-            days=body.days,
-            nights=body.nights,
-            interests=interests,
-            hours_per_day=hours_per_day,
-            preferred_mode=body.preferred_mode,
-        )
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
+    if body.destinations:
+        destinations = _mapped_user_destinations(body.destinations)
+        if not destinations:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Select at least one mapped destination to plan.",
+            )
+    else:
+        selector = ItineraryPoiSelectionService()
+        try:
+            destinations = await selector.select_places(
+                start=start,
+                end=end,
+                days=body.days,
+                nights=body.nights,
+                interests=interests,
+                hours_per_day=hours_per_day,
+                preferred_mode=body.preferred_mode,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
 
     service = ItineraryGenerationService()
     try:
@@ -129,6 +159,7 @@ async def generate_itinerary(body: ItineraryGenerateRequest) -> dict:
                 "hours_per_day": hours_per_day,
                 "interests": interests,
                 "preferred_mode": body.preferred_mode,
+                "keep_all_stops": bool(body.destinations),
             }
         )
     except ValueError as exc:

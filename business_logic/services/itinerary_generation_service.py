@@ -143,14 +143,31 @@ class ItineraryGenerationService:
                 "Select a destination from the list (system destinations with map coordinates)."
             )
 
-        ordered = self._order_for_generate(start, end, resolved, interests)
+        keep_all_stops = bool(payload.get("keep_all_stops"))
+        forced_oversize = False
+        feasible: list[dict[str, Any]]
 
-        if payload.get("days") is None:
-            days = self._estimate_days(
-                start, end, ordered, hours_per_day=hours_per_day
+        if keep_all_stops:
+            if payload.get("days") is None:
+                ordered = self._order_stops(start, end, resolved, interests)
+                days = self._estimate_days(
+                    start, end, ordered, hours_per_day=hours_per_day
+                )
+            else:
+                days = max(1, min(30, int(payload["days"])))
+            resolved = self._assign_days_along_route(
+                start, end, resolved, days=days
             )
+            ordered = self._order_stops_grouped(start, end, resolved, interests)
+            feasible = ordered
         else:
-            days = max(1, min(30, int(payload["days"])))
+            ordered = self._order_for_generate(start, end, resolved, interests)
+            if payload.get("days") is None:
+                days = self._estimate_days(
+                    start, end, ordered, hours_per_day=hours_per_day
+                )
+            else:
+                days = max(1, min(30, int(payload["days"])))
 
         if payload.get("nights") is None:
             nights = max(0, days - 1)
@@ -158,22 +175,48 @@ class ItineraryGenerationService:
             nights = max(0, min(30, int(payload["nights"])))
 
         daily_budget_min = hours_per_day * 60
-        feasible, more_excluded, forced_oversize = self._select_feasible_stops(
-            ordered,
-            days=days,
-            daily_budget_min=daily_budget_min,
-            start=start,
-            end=end,
-        )
-        excluded.extend(more_excluded)
+        if not keep_all_stops:
+            feasible, more_excluded, forced_oversize = self._select_feasible_stops(
+                ordered,
+                days=days,
+                daily_budget_min=daily_budget_min,
+                start=start,
+                end=end,
+            )
+            excluded.extend(more_excluded)
 
         path = self._build_path(start, feasible, end)
-        if self._has_assigned_days(feasible):
+        if keep_all_stops or self._has_assigned_days(feasible):
             scheduled = self._apply_assigned_days(path, days=days)
         else:
             scheduled = self._schedule_days(
                 path, days=days, daily_budget_min=daily_budget_min
             )
+
+        if keep_all_stops:
+            kept_ids = {
+                str(p["id"]) for p in scheduled if p.get("role") == "stop"
+            }
+            missing = [p for p in feasible if str(p["id"]) not in kept_ids]
+            if missing:
+                last_day = days
+                for stop in missing:
+                    scheduled.insert(
+                        -1,
+                        {
+                            **stop,
+                            "role": "stop",
+                            "day": last_day,
+                            "stay_min": int(
+                                stop.get("stay_min") or _DEFAULT_STAY_MIN
+                            ),
+                        },
+                    )
+                notes.append(
+                    "Some stops exceeded the daily hours budget; they were kept "
+                    f"on day {last_day} without removing them."
+                )
+
         max_stop_day = max(
             (
                 int(p.get("day") or 1)
@@ -182,7 +225,11 @@ class ItineraryGenerationService:
             ),
             default=0,
         )
-        if max_stop_day < days and sum(1 for p in scheduled if p.get("role") == "stop") < days:
+        if (
+            not keep_all_stops
+            and max_stop_day < days
+            and sum(1 for p in scheduled if p.get("role") == "stop") < days
+        ):
             notes.append(
                 f"Only enough catalog stops to fill {max(max_stop_day, 1)} of "
                 f"{days} day(s); remaining days are shown empty."

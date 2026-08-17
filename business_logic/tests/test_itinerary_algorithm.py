@@ -586,6 +586,113 @@ class ItineraryGenerationTests(unittest.TestCase):
             any("straight line" in note.lower() for note in result["notes"])
         )
 
+    def test_manual_stops_are_packed_without_catalog_pick(self) -> None:
+        result = self.service.generate(
+            {
+                "start": KL,
+                "end": BATU_STATION,
+                "days": 1,
+                "nights": 0,
+                "hours_per_day": 8,
+                "interests": [],
+                "preferred_mode": "driving",
+                "destinations": [
+                    {
+                        "id": "petronas",
+                        "name": "Petronas Twin Towers",
+                        "latitude": 3.1579,
+                        "longitude": 101.7116,
+                        "category_slug": "culture",
+                    },
+                    {
+                        "id": "merdeka",
+                        "name": "Merdeka Square",
+                        "latitude": 3.1486,
+                        "longitude": 101.6936,
+                        "category_slug": "heritage",
+                    },
+                ],
+            }
+        )
+        ids = [d["id"] for d in result["destinations"]]
+        self.assertEqual(sorted(ids), ["merdeka", "petronas"])
+        self.assertEqual(result["days"], 1)
+        self.assertEqual(result["nights"], 0)
+        self.assertTrue(all(int(d["day"]) == 1 for d in result["destinations"]))
+        self.assertNotIn("batu-caves", ids)
+
+    def test_keep_all_stops_walking_does_not_drop_user_stops(self) -> None:
+        result = self.service.generate(
+            {
+                "start": KL,
+                "end": PENANG,
+                "days": 3,
+                "nights": 2,
+                "hours_per_day": 5,
+                "interests": [],
+                "preferred_mode": "walking",
+                "keep_all_stops": True,
+                "destinations": [
+                    {
+                        "id": "petronas",
+                        "name": "Petronas Twin Towers",
+                        "latitude": 3.1579,
+                        "longitude": 101.7116,
+                        "category_slug": "culture",
+                    },
+                    {
+                        "id": "kek-lok-si",
+                        "name": "Kek Lok Si",
+                        "latitude": 5.3994,
+                        "longitude": 100.2736,
+                        "category_slug": "heritage",
+                    },
+                ],
+            }
+        )
+        ids = {d["id"] for d in result["destinations"]}
+        self.assertEqual(ids, {"kek-lok-si", "petronas"})
+
+    def test_keep_all_stops_spreads_across_requested_days(self) -> None:
+        result = self.service.generate(
+            {
+                "start": KL,
+                "end": JOHOR_BAHRU,
+                "days": 3,
+                "nights": 2,
+                "hours_per_day": 8,
+                "interests": [],
+                "preferred_mode": "driving",
+                "keep_all_stops": True,
+                "destinations": [
+                    {
+                        "id": "petronas",
+                        "name": "Petronas Twin Towers",
+                        "latitude": 3.1579,
+                        "longitude": 101.7116,
+                        "category_slug": "culture",
+                    },
+                    {
+                        "id": "merdeka",
+                        "name": "Merdeka Square",
+                        "latitude": 3.1486,
+                        "longitude": 101.6936,
+                        "category_slug": "heritage",
+                    },
+                    {
+                        "id": "pavilion",
+                        "name": "Pavilion Kuala Lumpur",
+                        "latitude": 3.1490,
+                        "longitude": 101.7134,
+                        "category_slug": "shopping",
+                    },
+                ],
+            }
+        )
+        ids = {d["id"] for d in result["destinations"]}
+        self.assertEqual(ids, {"merdeka", "pavilion", "petronas"})
+        self.assertIn(3, {int(d["day"]) for d in result["destinations"]})
+
 
     def _short_trip_payload(self, preferred_mode: str) -> dict:
         return {

@@ -28,7 +28,7 @@ class PlaceInput(BaseModel):
 
 
 class ItineraryGenerateRequest(BaseModel):
-    """User trip constraints; destinations are selected server-side from catalog."""
+    """Trip constraints. Empty destinations = server catalog pick (System Planner)."""
 
     start: PlaceInput
     end: PlaceInput
@@ -37,6 +37,7 @@ class ItineraryGenerateRequest(BaseModel):
     hours_per_day: int = Field(ge=1, le=16)
     interests: list[str] = Field(default_factory=list)
     preferred_mode: Literal["driving", "walking", "transit"] = "driving"
+    destinations: list[PlaceInput] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_nights_vs_days(self) -> ItineraryGenerateRequest:

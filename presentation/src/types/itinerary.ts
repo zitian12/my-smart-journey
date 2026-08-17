@@ -16,6 +16,8 @@ export type ItineraryGenerateRequest = {
   hours_per_day: number;
   interests?: string[];
   preferred_mode?: "driving" | "walking" | "transit";
+  /** Manual Planner: skip server catalog pick when non-empty. */
+  destinations?: PlaceInput[];
 };
 
 export type RecomputeStopInput = PlaceInput & {
