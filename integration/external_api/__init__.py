@@ -7,6 +7,7 @@ from .google_places_client import GooglePlacesClient
 from .nominatim_client import NominatimClient
 from .ors_client import OrsClient
 from .osrm_client import OsrmClient
+from .photon_client import PhotonClient
 from .serpapi_image_client import SerpApiImageClient
 from .wikimedia_image_client import WikimediaImageClient
 
@@ -18,6 +19,7 @@ __all__ = [
     "NominatimClient",
     "OrsClient",
     "OsrmClient",
+    "PhotonClient",
     "SerpApiImageClient",
     "WikimediaImageClient",
 ]

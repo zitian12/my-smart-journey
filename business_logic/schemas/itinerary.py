@@ -10,7 +10,7 @@ from schemas.profile import PublicUserProfile
 
 
 class PlaceInput(BaseModel):
-    """A place selected from the destinations catalog (or typed name)."""
+    """Typed address (start/end) or catalog destination (stops)."""
 
     name: str = Field(min_length=1)
     id: str | None = None
@@ -18,10 +18,19 @@ class PlaceInput(BaseModel):
     longitude: float | None = None
     recommended_stay_minutes: int | None = Field(default=None, ge=30, le=480)
     category_slug: str | None = None
+    hub_label: str | None = None
+
+    @field_validator("name")
+    @classmethod
+    def strip_place_name(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("name cannot be empty")
+        return cleaned
 
 
 class ItineraryGenerateRequest(BaseModel):
-    """User trip constraints; destinations are selected server-side from catalog."""
+    """Trip constraints. Empty destinations = server catalog pick (System Planner)."""
 
     start: PlaceInput
     end: PlaceInput
@@ -29,7 +38,8 @@ class ItineraryGenerateRequest(BaseModel):
     nights: int = Field(ge=0, le=30)
     hours_per_day: int = Field(ge=1, le=16)
     interests: list[str] = Field(default_factory=list)
-    preferred_mode: Literal["driving"] = "driving"
+    preferred_mode: Literal["driving", "walking", "transit"] = "driving"
+    destinations: list[PlaceInput] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_nights_vs_days(self) -> ItineraryGenerateRequest:
@@ -37,10 +47,10 @@ class ItineraryGenerateRequest(BaseModel):
             raise ValueError(
                 f"nights must be {self.days - 1} or {self.days} for a {self.days}-day trip"
             )
-        if self.start.latitude is None or self.start.longitude is None:
-            raise ValueError("start must include latitude and longitude")
-        if self.end.latitude is None or self.end.longitude is None:
-            raise ValueError("end must include latitude and longitude")
+        start_name = self.start.name.strip().lower()
+        end_name = self.end.name.strip().lower()
+        if start_name == end_name:
+            raise ValueError("Start and end must be different addresses.")
         return self
 
 
@@ -53,7 +63,7 @@ class RecomputeStopInput(PlaceInput):
 
 
 class ItineraryRecomputeRequest(BaseModel):
-    """Rebuild legs/schedule from an explicit stop list (no AI re-pick)."""
+    """Rebuild legs/schedule from an explicit stop list (no catalog re-pick)."""
 
     start: PlaceInput
     end: PlaceInput
@@ -62,7 +72,7 @@ class ItineraryRecomputeRequest(BaseModel):
     nights: int = Field(ge=0, le=30)
     hours_per_day: int = Field(ge=1, le=16)
     interests: list[str] = Field(default_factory=list)
-    preferred_mode: Literal["driving"] = "driving"
+    preferred_mode: Literal["driving", "walking", "transit"] = "driving"
     # When true (e.g. after Add stop): re-order by corridor and re-pack days.
     optimize_order: bool = False
 
@@ -102,6 +112,7 @@ class OrderedDestination(BaseModel):
     latitude: float | None = None
     longitude: float | None = None
     category_slug: str | None = None
+    hub_label: str | None = None
 
 
 class TransportOption(BaseModel):
@@ -176,6 +187,10 @@ class SustainabilitySummary(BaseModel):
 class ItineraryGenerateResponse(BaseModel):
     start_location: str
     end_location: str
+    start_latitude: float | None = None
+    start_longitude: float | None = None
+    end_latitude: float | None = None
+    end_longitude: float | None = None
     days: int
     nights: int
     hours_per_day: int

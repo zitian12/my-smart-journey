@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { DestinationImage } from "../components/DestinationImage";
 import { FavouriteHeartButton } from "../components/FavouriteHeartButton";
@@ -180,6 +181,19 @@ export function FavouritesPage() {
       setRenameValue("");
     }
   }, [selectedFolder]);
+
+  useEffect(() => {
+    if (!addTargetId) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setAddTargetId(null);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [addTargetId]);
 
   const requireToken = () => {
     const token = getAccessToken();
@@ -450,6 +464,14 @@ export function FavouritesPage() {
               >
                 Delete folder
               </button>
+              {destinations.length > 0 ? (
+                <Link
+                  to={`/dashboard/planning?mode=manual&folder=${selectedFolder.id}`}
+                  className="rounded-lg bg-forest px-3 py-2 text-sm font-medium text-white no-underline transition-colors hover:bg-leaf"
+                >
+                  Plan from this folder
+                </Link>
+              ) : null}
             </div>
           ) : null}
 
@@ -515,52 +537,57 @@ export function FavouritesPage() {
         </section>
       </div>
 
-      {addTargetId ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-forest/30 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="add-to-folder-title"
-          onClick={() => setAddTargetId(null)}
-        >
-          <div
-            className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-lg ring-1 ring-forest/10"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <h2
-              id="add-to-folder-title"
-              className="font-display text-xl font-semibold text-forest"
-            >
-              Add to folder
-            </h2>
-            <p className="mt-1 text-sm text-stone">
-              Choose a folder for this destination.
-            </p>
-            <div className="mt-4 space-y-2">
-              {folders.map((folder) => (
-                <button
-                  key={folder.id}
-                  type="button"
-                  onClick={() => {
-                    void handleAddToFolder(addTargetId, folder.id);
-                  }}
-                  className="flex w-full items-center justify-between rounded-lg border border-forest/10 px-3 py-2.5 text-left text-sm font-medium text-forest transition hover:bg-mist"
-                >
-                  <span>{folder.name}</span>
-                  <span className="text-xs text-stone">{folder.item_count}</span>
-                </button>
-              ))}
-            </div>
-            <button
-              type="button"
+      {addTargetId
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-forest/30 p-4"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="add-to-folder-title"
               onClick={() => setAddTargetId(null)}
-              className="mt-4 w-full rounded-lg border border-forest/15 px-3 py-2 text-sm font-medium text-stone hover:bg-mist"
             >
-              Cancel
-            </button>
-          </div>
-        </div>
-      ) : null}
+              <div
+                className="flex w-full max-w-sm max-h-[min(28rem,calc(100dvh-2rem))] flex-col rounded-2xl bg-white p-5 shadow-lg ring-1 ring-forest/10"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <h2
+                  id="add-to-folder-title"
+                  className="font-display text-xl font-semibold text-forest"
+                >
+                  Add to folder
+                </h2>
+                <p className="mt-1 text-sm text-stone">
+                  Choose a folder for this destination.
+                </p>
+                <div className="mt-4 min-h-0 flex-1 space-y-2 overflow-y-auto">
+                  {folders.map((folder) => (
+                    <button
+                      key={folder.id}
+                      type="button"
+                      onClick={() => {
+                        void handleAddToFolder(addTargetId, folder.id);
+                      }}
+                      className="flex min-h-11 w-full items-center justify-between gap-3 rounded-xl border border-forest/10 px-3 py-2.5 text-left text-sm font-medium text-forest transition hover:bg-mist"
+                    >
+                      <span className="truncate">{folder.name}</span>
+                      <span className="shrink-0 text-xs text-stone">
+                        {folder.item_count}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAddTargetId(null)}
+                  className="mt-4 w-full shrink-0 rounded-xl border border-forest/15 px-3 py-2.5 text-sm font-medium text-stone hover:bg-mist"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

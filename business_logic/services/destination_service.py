@@ -52,7 +52,7 @@ class DestinationService:
         state: str | None = None,
         category: str | None = None,
     ) -> list[dict]:
-        """Return destinations: Places images first, then featured, then name."""
+        """Return destinations: featured first, then photos, then name."""
         category_id = None
         category_lookup = await self._category_lookup()
 
@@ -77,8 +77,8 @@ class DestinationService:
         enriched = [self._enrich(dest, category_lookup) for dest in destinations]
         enriched.sort(
             key=lambda item: (
-                0 if (item.get("images") or []) else 1,
                 0 if item.get("is_featured") else 1,
+                0 if (item.get("images") or []) else 1,
                 str(item.get("destination_name") or "").casefold(),
             )
         )

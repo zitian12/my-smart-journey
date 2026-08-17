@@ -1,0 +1,18 @@
+---
+description: Minimize Google Maps API usage; prefer OSM, cache, and existing coordinates.
+alwaysApply: true
+---
+
+# Save Google Maps quota
+
+Follow [GOOGLE_API_QUOTA.md](GOOGLE_API_QUOTA.md). Default: **no new Google Places / Geocoding / Autocomplete / Distance Matrix calls.**
+
+- Address suggest: `GET /api/geocode/suggest` (OSM Photon). Never Places Autocomplete or Place Details.
+- Do not geocode on keystroke, blur, or debounce. Geocode only if start/end lack lat/lng.
+- Do not use `geocode_destination` for user addresses (multi-query).
+- Generate/recompute: send coords when the user picked a suggestion so Geocoding is skipped.
+- Directions: one batched driving **or** walking call per generate. Transit: one cached call per consecutive pair (no waypoints). Haversine instead of Distance Matrix.
+- Places: catalog seed/enrich only — never itinerary generate.
+- Browser key: Maps JavaScript only. Frontend must not call Nominatim public autocomplete.
+
+If a change would add Google billable events, use OSM, cache, or stored coordinates instead.

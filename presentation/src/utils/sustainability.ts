@@ -15,6 +15,8 @@ const EMISSION_FACTORS_KG_PER_KM: Record<string, number> = {
   lrt: 0.041,
   mrt: 0.041,
   bus: 0.105,
+  transit: 0.105,
+  public_transport: 0.105,
   motorcycle: 0.113,
   driving: 0.171,
   car: 0.171,
@@ -35,6 +37,8 @@ const CANONICAL_MODE: Record<string, string> = {
   lrt: "train",
   mrt: "train",
   bus: "bus",
+  transit: "transit",
+  public_transport: "transit",
   motorcycle: "motorcycle",
   driving: "driving",
   car: "driving",
@@ -56,6 +60,8 @@ export const MODE_LABELS: Record<string, string> = {
   cycling: "Cycling",
   train: "Train",
   bus: "Bus",
+  transit: "Public Transport",
+  public_transport: "Public Transport",
   motorcycle: "Motorcycle",
   ev: "EV",
   flight: "Flight",
@@ -111,13 +117,20 @@ function impactTextForPercent(reductionPercent: number): string {
   return "This itinerary currently matches private-vehicle emissions — consider public transport or walking for some legs.";
 }
 
-function selectedMetrics(leg: ItineraryLeg): { mode: string; distanceKm: number } {
+function selectedMetrics(
+  leg: ItineraryLeg,
+): { mode: string; distanceKm: number; carbonKg: number | null } {
   const selected = leg.selected_mode || "driving";
   const match = (leg.transport_options || []).find((opt) => opt.mode === selected);
   if (match) {
-    return { mode: selected, distanceKm: match.distance_km || 0 };
+    return {
+      mode: selected,
+      distanceKm: match.distance_km || 0,
+      carbonKg:
+        typeof match.carbon_kg === "number" ? match.carbon_kg : null,
+    };
   }
-  return { mode: selected, distanceKm: leg.distance_km || 0 };
+  return { mode: selected, distanceKm: leg.distance_km || 0, carbonKg: null };
 }
 
 export function evaluateSustainability(
@@ -130,9 +143,13 @@ export function evaluateSustainability(
   let baselineFootprint = 0;
   let distanceKm = 0;
   const breakdownByLeg = rows.map((leg, index) => {
-    const { mode: rawMode, distanceKm: distance } = selectedMetrics(leg);
+    const { mode: rawMode, distanceKm: distance, carbonKg: optionCarbon } =
+      selectedMetrics(leg);
     const mode = normalizeMode(rawMode);
-    const carbon = round3(distance * emissionFactor(rawMode));
+    const carbon =
+      optionCarbon != null
+        ? round3(optionCarbon)
+        : round3(distance * emissionFactor(rawMode));
     const baselineLeg = round3(distance * EMISSION_FACTORS_KG_PER_KM[BASELINE_MODE]);
     totalFootprint += carbon;
     baselineFootprint += baselineLeg;
