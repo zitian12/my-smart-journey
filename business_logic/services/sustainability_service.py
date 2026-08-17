@@ -34,7 +34,7 @@ def _place_name(place: Any) -> str:
     return str(place or "").strip()
 
 
-def _selected_metrics(leg: dict[str, Any]) -> tuple[str, float]:
+def _selected_metrics(leg: dict[str, Any]) -> tuple[str, float, float | None]:
     selected = str(leg.get("selected_mode") or "driving")
     options = leg.get("transport_options") or []
     match = next(
@@ -42,8 +42,10 @@ def _selected_metrics(leg: dict[str, Any]) -> tuple[str, float]:
         None,
     )
     if isinstance(match, dict):
-        return selected, float(match.get("distance_km") or 0.0)
-    return selected, float(leg.get("distance_km") or 0.0)
+        carbon = match.get("carbon_kg")
+        carbon_val = float(carbon) if carbon is not None else None
+        return selected, float(match.get("distance_km") or 0.0), carbon_val
+    return selected, float(leg.get("distance_km") or 0.0), None
 
 
 def rating_for_score(score: float) -> str:
@@ -93,9 +95,13 @@ class SustainabilityService:
         distance_km = 0.0
 
         for index, leg in enumerate(rows, start=1):
-            raw_mode, distance = _selected_metrics(leg)
+            raw_mode, distance, option_carbon = _selected_metrics(leg)
             mode = normalize_mode(raw_mode)
-            carbon = _round3(distance * emission_factor(raw_mode))
+            carbon = (
+                _round3(option_carbon)
+                if option_carbon is not None
+                else _round3(distance * emission_factor(raw_mode))
+            )
             baseline_leg = _round3(distance * baseline_factor())
 
             total_footprint += carbon

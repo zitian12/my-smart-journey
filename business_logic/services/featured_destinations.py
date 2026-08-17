@@ -75,3 +75,11 @@ FEATURED_DESTINATION_NAMES: list[str] = [
     "Perdana Botanical",
     "Zoo Negara",
 ]
+
+
+def matches_featured_name(name: str) -> bool:
+    """True if destination_name contains a curated featured fragment."""
+    hay = (name or "").casefold()
+    if not hay:
+        return False
+    return any(fragment.casefold() in hay for fragment in FEATURED_DESTINATION_NAMES)

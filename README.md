@@ -60,6 +60,8 @@ Frontend (`presentation/.env`):
 
 Do not reuse OAuth, Gemini, or CSE keys for Maps. Enable only **Maps JavaScript**, **Directions**, and **Geocoding**. Set a Google Cloud budget alert.
 
+New Maps features must follow **[GOOGLE_API_QUOTA.md](GOOGLE_API_QUOTA.md)** (prefer OSM Photon, cache, and existing coordinates over extra Google calls).
+
 Copy `presentation/.env.example` to `presentation/.env` as well.
 
 ### Destination images

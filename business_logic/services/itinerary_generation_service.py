@@ -7,29 +7,53 @@ import re
 from itertools import permutations
 from typing import Any
 
-from integration.external_api import GoogleMapsClient
-from integration.external_api.geo import estimate_route, haversine_duration_min, haversine_km
+from integration.external_api import GoogleMapsClient, OsrmClient
+from integration.external_api.geo import (
+    estimate_route,
+    haversine_duration_min,
+    haversine_km,
+    route_projection,
+)
 from services.carbon_stub_service import CarbonStubService
+from services.itinerary_defaults import (
+    DEFAULT_HOURS_PER_DAY,
+    DEFAULT_STAY_MIN,
+    stay_minutes_for_slug,
+)
+from services.itinerary_poi_selection_service import ItineraryPoiSelectionService
 from services.sustainability_service import SustainabilityService
 
-_DEFAULT_STAY_MIN = 90
-_DEFAULT_HOURS_PER_DAY = 8
+_DEFAULT_STAY_MIN = DEFAULT_STAY_MIN
+_DEFAULT_HOURS_PER_DAY = DEFAULT_HOURS_PER_DAY
 _SHARED_MAPS = GoogleMapsClient()
-_CATEGORY_STAY_MIN: dict[str, int] = {
-    "nature": 120,
-    "culture": 90,
-    "heritage": 90,
-    "adventure": 150,
-    "shopping": 90,
-}
+_SHARED_OSRM = OsrmClient()
+_SAME_CITY_KM = 40.0
 _MAX_WALK_KM = 3.0
 _MAX_WALK_MIN = 45
 _MODE_SPEEDS_KMH = {
     "driving": 50.0,
     "walking": 4.5,
     "bus": 35.0,
+    "transit": 35.0,
     "train": 60.0,
 }
+
+
+def _normalize_preferred_mode(mode: str | None) -> str:
+    key = str(mode or "driving").strip().lower()
+    if key in {"walking", "walk", "foot"}:
+        return "walking"
+    if key in {"transit", "bus", "train", "public_transport", "public-transport"}:
+        return "transit"
+    return "driving"
+
+
+def _pack_speed_kmh(mode: str) -> float:
+    if mode == "walking":
+        return _MODE_SPEEDS_KMH["walking"]
+    if mode == "transit":
+        return _MODE_SPEEDS_KMH["transit"]
+    return _MODE_SPEEDS_KMH["driving"]
 
 
 def _slugify(name: str) -> str:
@@ -44,13 +68,11 @@ def _clamp_stay(minutes: int | None) -> int:
 
 
 def _stay_min(place: dict[str, Any]) -> int:
+    if place.get("stay_min"):
+        return _clamp_stay(int(place["stay_min"]))
     if place.get("recommended_stay_minutes"):
         return _clamp_stay(int(place["recommended_stay_minutes"]))
-    slug = (place.get("category_slug") or "").lower()
-    for key, value in _CATEGORY_STAY_MIN.items():
-        if key in slug:
-            return value
-    return _DEFAULT_STAY_MIN
+    return stay_minutes_for_slug(place.get("category_slug"))
 
 
 def _interest_score(place: dict[str, Any], interests: list[str]) -> float:
@@ -69,11 +91,14 @@ class ItineraryGenerationService:
         self,
         carbon_service: CarbonStubService | None = None,
         maps_client: GoogleMapsClient | None = None,
+        osrm_client: OsrmClient | None = None,
     ) -> None:
         self._carbon = carbon_service or CarbonStubService()
         self._sustainability = SustainabilityService()
         self._maps = maps_client or _SHARED_MAPS
+        self._osrm = osrm_client if osrm_client is not None else _SHARED_OSRM
         self._route_cache: dict[tuple[str, float, float, float, float], dict[str, Any]] = {}
+        self._preferred_mode = "driving"
 
     def generate(self, payload: dict[str, Any]) -> dict[str, Any]:
         # Fresh walking-pair cache per generate; Directions itself is cached on the client.
@@ -85,7 +110,8 @@ class ItineraryGenerationService:
         start = self._resolve_place(payload.get("start") or payload.get("start_location"))
         end = self._resolve_place(payload.get("end") or payload.get("end_location"))
         interests = [str(i) for i in (payload.get("interests") or [])]
-        preferred_mode = str(payload.get("preferred_mode") or "driving").lower()
+        preferred_mode = _normalize_preferred_mode(payload.get("preferred_mode"))
+        self._preferred_mode = preferred_mode
 
         resolved: list[dict[str, Any]] = []
         excluded: list[str] = []
@@ -117,7 +143,7 @@ class ItineraryGenerationService:
                 "Select a destination from the list (system destinations with map coordinates)."
             )
 
-        ordered = self._order_stops(start, end, resolved, interests)
+        ordered = self._order_for_generate(start, end, resolved, interests)
 
         if payload.get("days") is None:
             days = self._estimate_days(
@@ -142,14 +168,12 @@ class ItineraryGenerationService:
         excluded.extend(more_excluded)
 
         path = self._build_path(start, feasible, end)
-        scheduled = self._schedule_days(
-            path, days=days, daily_budget_min=daily_budget_min
-        )
-        scheduled = self._ensure_days_spread(
-            scheduled,
-            days=days,
-            daily_budget_min=daily_budget_min,
-        )
+        if self._has_assigned_days(feasible):
+            scheduled = self._apply_assigned_days(path, days=days)
+        else:
+            scheduled = self._schedule_days(
+                path, days=days, daily_budget_min=daily_budget_min
+            )
         max_stop_day = max(
             (
                 int(p.get("day") or 1)
@@ -163,7 +187,10 @@ class ItineraryGenerationService:
                 f"Only enough catalog stops to fill {max(max_stop_day, 1)} of "
                 f"{days} day(s); remaining days are shown empty."
             )
-        legs = self._build_legs(scheduled, preferred_mode=preferred_mode)
+        legs = self._build_legs(
+            scheduled, preferred_mode=preferred_mode, notes=notes
+        )
+        self._note_straight_line_route(notes, legs)
         day_totals = self._build_day_totals(scheduled, legs, days=days)
 
         ordered_destinations: list[dict[str, Any]] = []
@@ -181,6 +208,7 @@ class ItineraryGenerationService:
                     "latitude": place.get("latitude"),
                     "longitude": place.get("longitude"),
                     "category_slug": place.get("category_slug"),
+                    "hub_label": place.get("hub_label") or None,
                 }
             )
             order += 1
@@ -221,12 +249,18 @@ class ItineraryGenerationService:
         for day_total in day_totals:
             if int(day_total["duration_min"]) > daily_budget_min:
                 notes.append(
-                    f"Day {day_total['day']} exceeds {hours_per_day} hrs/day budget."
+                    self._over_budget_note(
+                        int(day_total["day"]), hours_per_day
+                    )
                 )
 
         return {
             "start_location": start["name"],
             "end_location": end["name"],
+            "start_latitude": float(start["latitude"]),
+            "start_longitude": float(start["longitude"]),
+            "end_latitude": float(end["latitude"]),
+            "end_longitude": float(end["longitude"]),
             "days": days,
             "nights": nights,
             "hours_per_day": hours_per_day,
@@ -261,7 +295,8 @@ class ItineraryGenerationService:
         start = self._resolve_place(payload.get("start") or payload.get("start_location"))
         end = self._resolve_place(payload.get("end") or payload.get("end_location"))
         interests = [str(i) for i in (payload.get("interests") or [])]
-        preferred_mode = str(payload.get("preferred_mode") or "driving").lower()
+        preferred_mode = _normalize_preferred_mode(payload.get("preferred_mode"))
+        self._preferred_mode = preferred_mode
         hours_per_day = int(payload.get("hours_per_day") or _DEFAULT_HOURS_PER_DAY)
         days = max(1, min(30, int(payload.get("days") or 1)))
         if payload.get("nights") is None:
@@ -282,6 +317,9 @@ class ItineraryGenerationService:
                 place["stay_min"] = _clamp_stay(int(item["recommended_stay_minutes"]))
             if item.get("day") is not None:
                 place["user_day"] = max(1, min(days, int(item["day"])))
+                place["day"] = place["user_day"]
+            if item.get("hub_label"):
+                place["hub_label"] = str(item["hub_label"])
             if item.get("order") is not None:
                 place["user_order"] = int(item["order"])
             else:
@@ -289,9 +327,14 @@ class ItineraryGenerationService:
             resolved.append(place)
 
         if optimize_order and resolved:
-            resolved = self._order_stops(start, end, resolved, interests)
+            resolved = self._assign_days_along_route(
+                start, end, resolved, days=days
+            )
+            resolved = self._order_stops_grouped(
+                start, end, resolved, interests
+            )
             notes.append(
-                "Stop order and days were re-planned for the driving corridor."
+                "Stop order was re-planned within each day's area."
             )
         else:
             resolved.sort(key=lambda p: int(p.get("user_order") or 0))
@@ -304,14 +347,11 @@ class ItineraryGenerationService:
         )
         if has_user_days:
             scheduled = self._apply_user_days(path, days=days)
+        elif self._has_assigned_days(resolved):
+            scheduled = self._apply_assigned_days(path, days=days)
         else:
             scheduled = self._schedule_days(
                 path, days=days, daily_budget_min=daily_budget_min
-            )
-            scheduled = self._ensure_days_spread(
-                scheduled,
-                days=days,
-                daily_budget_min=daily_budget_min,
             )
             # Re-attach any stops dropped by overflow on last day.
             kept_ids = {
@@ -335,7 +375,10 @@ class ItineraryGenerationService:
                     f"on day {last_day} without removing them."
                 )
 
-        legs = self._build_legs(scheduled, preferred_mode=preferred_mode)
+        legs = self._build_legs(
+            scheduled, preferred_mode=preferred_mode, notes=notes
+        )
+        self._note_straight_line_route(notes, legs)
         day_totals = self._build_day_totals(scheduled, legs, days=days)
 
         ordered_destinations: list[dict[str, Any]] = []
@@ -353,6 +396,7 @@ class ItineraryGenerationService:
                     "latitude": place.get("latitude"),
                     "longitude": place.get("longitude"),
                     "category_slug": place.get("category_slug"),
+                    "hub_label": place.get("hub_label") or None,
                 }
             )
             order += 1
@@ -378,12 +422,18 @@ class ItineraryGenerationService:
         for day_total in day_totals:
             if int(day_total["duration_min"]) > daily_budget_min:
                 notes.append(
-                    f"Day {day_total['day']} exceeds {hours_per_day} hrs/day budget."
+                    self._over_budget_note(
+                        int(day_total["day"]), hours_per_day
+                    )
                 )
 
         return {
             "start_location": start["name"],
             "end_location": end["name"],
+            "start_latitude": float(start["latitude"]),
+            "start_longitude": float(start["longitude"]),
+            "end_latitude": float(end["latitude"]),
+            "end_longitude": float(end["longitude"]),
             "days": days,
             "nights": nights,
             "hours_per_day": hours_per_day,
@@ -472,7 +522,7 @@ class ItineraryGenerationService:
             )
 
         place_id = str(place.get("id") or _slugify(name))
-        return {
+        resolved = {
             "id": place_id,
             "name": name,
             "latitude": float(lat),
@@ -482,6 +532,134 @@ class ItineraryGenerationService:
             "recommended_stay_minutes": place.get("recommended_stay_minutes"),
             "tags": place.get("tags") or [],
         }
+        if place.get("day") is not None:
+            resolved["day"] = max(1, int(place["day"]))
+        hub_label = place.get("hub_label")
+        if hub_label:
+            resolved["hub_label"] = str(hub_label)
+        if place.get("is_hero"):
+            resolved["is_hero"] = True
+        return resolved
+
+    @staticmethod
+    def _has_assigned_days(stops: list[dict[str, Any]]) -> bool:
+        return bool(stops) and all(p.get("day") is not None for p in stops)
+
+    def _order_for_generate(
+        self,
+        start: dict[str, Any],
+        end: dict[str, Any],
+        stops: list[dict[str, Any]],
+        interests: list[str],
+    ) -> list[dict[str, Any]]:
+        if self._has_assigned_days(stops):
+            return self._order_stops_grouped(start, end, stops, interests)
+        return self._order_stops(start, end, stops, interests)
+
+    def _order_stops_grouped(
+        self,
+        start: dict[str, Any],
+        end: dict[str, Any],
+        stops: list[dict[str, Any]],
+        interests: list[str],
+    ) -> list[dict[str, Any]]:
+        """TSP within each assigned day; chain days start → end without zigzag."""
+        by_day: dict[int, list[dict[str, Any]]] = {}
+        for stop in stops:
+            by_day.setdefault(int(stop.get("day") or 1), []).append(stop)
+
+        ordered: list[dict[str, Any]] = []
+        prev = start
+        for day in sorted(by_day):
+            group = by_day[day]
+            ranked = self._order_stops(prev, end, group, interests)
+            for stop in ranked:
+                stop["day"] = day
+            ordered.extend(ranked)
+            if ranked:
+                prev = ranked[-1]
+        return ordered
+
+    def _assign_days_along_route(
+        self,
+        start: dict[str, Any],
+        end: dict[str, Any],
+        stops: list[dict[str, Any]],
+        *,
+        days: int,
+    ) -> list[dict[str, Any]]:
+        """Put each stop in a progress (or city) band without global reshuffle."""
+        if not stops:
+            return stops
+        start_pt = (float(start["latitude"]), float(start["longitude"]))
+        end_pt = (float(end["latitude"]), float(end["longitude"]))
+        trip_km = haversine_km(start_pt, end_pt)
+        rows = [dict(stop) for stop in stops]
+
+        if trip_km < _SAME_CITY_KM and len(rows) >= 2:
+            coords = [
+                (float(s["latitude"]), float(s["longitude"])) for s in rows
+            ]
+            k = max(1, min(days, len(rows)))
+            labels = ItineraryPoiSelectionService._kmeans_labels(coords, k)
+            groups: dict[int, list[dict[str, Any]]] = {}
+            for stop, label in zip(rows, labels):
+                groups.setdefault(label, []).append(stop)
+            ranked = sorted(
+                groups.values(),
+                key=lambda group: haversine_km(
+                    start_pt,
+                    ItineraryPoiSelectionService._centroid(group),
+                ),
+            )
+            for day_index, group in enumerate(ranked, start=1):
+                day = min(days, day_index)
+                for stop in group:
+                    stop["day"] = day
+            return rows
+
+        for stop in rows:
+            progress, _dist = route_projection(
+                (float(stop["latitude"]), float(stop["longitude"])),
+                start_pt,
+                end_pt,
+            )
+            stop["_progress"] = progress
+        ranked_stops = sorted(rows, key=lambda s: float(s.get("_progress") or 0.0))
+        n = len(ranked_stops)
+        for index, stop in enumerate(ranked_stops):
+            stop["day"] = min(days, int(index * days / n) + 1)
+            stop.pop("_progress", None)
+        return ranked_stops
+
+    def _apply_assigned_days(
+        self,
+        path: list[dict[str, Any]],
+        *,
+        days: int,
+    ) -> list[dict[str, Any]]:
+        """Keep selector/user day labels; do not slice clusters by time budget."""
+        scheduled: list[dict[str, Any]] = []
+        max_stop_day = 1
+        for place in path:
+            row = dict(place)
+            role = row.get("role")
+            if role == "start":
+                row["day"] = 1
+                row["stay_min"] = 0
+            elif role == "end":
+                row["day"] = min(days, max(1, max_stop_day))
+                row["stay_min"] = 0
+            else:
+                day = max(1, min(days, int(row.get("day") or 1)))
+                row["day"] = day
+                row["stay_min"] = int(row.get("stay_min") or _DEFAULT_STAY_MIN)
+                max_stop_day = max(max_stop_day, day)
+            scheduled.append(row)
+        for row in scheduled:
+            if row.get("role") == "end":
+                row["day"] = min(days, max(1, max_stop_day))
+        return scheduled
 
     def _order_stops(
         self,
@@ -498,7 +676,7 @@ class ItineraryGenerationService:
             *[(s["latitude"], s["longitude"]) for s in stops],
             (end["latitude"], end["longitude"]),
         ]
-        matrix = self._driving_matrix(points)
+        matrix = self._duration_matrix(points)
         end_idx = len(points) - 1
 
         # Exact best order for small wishlists (avoids Melaka→KL→Johor→KL backtracks).
@@ -547,10 +725,10 @@ class ItineraryGenerationService:
         improved = self._two_opt(perm, matrix)
         return [stops[i - 1] for i in improved]
 
-    def _driving_matrix(self, points: list[tuple[float, float]]) -> list[list[float]]:
+    def _duration_matrix(self, points: list[tuple[float, float]]) -> list[list[float]]:
         """Haversine duration matrix — no Google Distance Matrix calls."""
         n = len(points)
-        speed = _MODE_SPEEDS_KMH["driving"]
+        speed = _pack_speed_kmh(self._preferred_mode)
         matrix = [[0.0] * n for _ in range(n)]
         for i in range(n):
             for j in range(n):
@@ -598,7 +776,16 @@ class ItineraryGenerationService:
         start: dict[str, Any],
         end: dict[str, Any],
     ) -> tuple[list[dict[str, Any]], list[str], bool]:
-        """Pack stops day-by-day; exclude those that exceed hours/day (visit+travel)."""
+        """Pack stops; when days are pre-assigned, trim fillers per day only."""
+        if self._has_assigned_days(stops):
+            return self._trim_per_day(
+                stops,
+                days=days,
+                daily_budget_min=daily_budget_min,
+                start=start,
+                end=end,
+            )
+
         selected: list[dict[str, Any]] = []
         excluded: list[str] = []
         forced_oversize = False
@@ -616,13 +803,68 @@ class ItineraryGenerationService:
                 continue
 
             if not selected:
-                # Keep at least one stop even if it alone overflows the daily budget.
                 selected = [stop]
                 forced_oversize = True
             else:
                 excluded.append(stop["name"])
 
         return selected, excluded, forced_oversize
+
+    def _trim_per_day(
+        self,
+        stops: list[dict[str, Any]],
+        *,
+        days: int,
+        daily_budget_min: int,
+        start: dict[str, Any],
+        end: dict[str, Any],
+    ) -> tuple[list[dict[str, Any]], list[str], bool]:
+        """Drop overflow fillers; never drop the first (hero) stop of a day."""
+        del start, end
+        by_day: dict[int, list[dict[str, Any]]] = {}
+        for stop in stops:
+            by_day.setdefault(int(stop.get("day") or 1), []).append(stop)
+
+        selected: list[dict[str, Any]] = []
+        excluded: list[str] = []
+        forced_oversize = False
+
+        for day in sorted(by_day):
+            if day > days:
+                excluded.extend(stop["name"] for stop in by_day[day])
+                continue
+            kept: list[dict[str, Any]] = []
+            for index, stop in enumerate(by_day[day]):
+                trial = kept + [stop]
+                fits = self._day_budget_fits(
+                    trial,
+                    daily_budget_min=daily_budget_min,
+                )
+                is_hero = bool(stop.get("is_hero")) or index == 0
+                if fits or is_hero:
+                    if not fits and is_hero:
+                        forced_oversize = True
+                    kept.append(stop)
+                else:
+                    excluded.append(stop["name"])
+            selected.extend(kept)
+        return selected, excluded, forced_oversize
+
+    def _day_budget_fits(
+        self,
+        stops: list[dict[str, Any]],
+        *,
+        daily_budget_min: int,
+    ) -> bool:
+        if not stops:
+            return True
+        used = int(stops[0].get("stay_min") or _DEFAULT_STAY_MIN)
+        prev = stops[0]
+        for stop in stops[1:]:
+            used += self._travel_min(prev, stop)
+            used += int(stop.get("stay_min") or _DEFAULT_STAY_MIN)
+            prev = stop
+        return used <= daily_budget_min
 
     def _pack_fits(
         self,
@@ -716,119 +958,72 @@ class ItineraryGenerationService:
             used += need
         return scheduled
 
-    def _ensure_days_spread(
-        self,
-        scheduled: list[dict[str, Any]],
-        *,
-        days: int,
-        daily_budget_min: int,
-    ) -> list[dict[str, Any]]:
-        """Reassign stop days so every trip day is used when stops allow."""
-        if days <= 1:
-            return scheduled
-
-        start = next((p for p in scheduled if p.get("role") == "start"), None)
-        end = next((p for p in scheduled if p.get("role") == "end"), None)
-        stops = [dict(p) for p in scheduled if p.get("role") == "stop"]
-        if start is None or end is None or not stops:
-            return scheduled
-
-        occupied = {int(p.get("day") or 1) for p in stops}
-        missing = [d for d in range(1, days + 1) if d not in occupied]
-        if not missing:
-            return scheduled
-
-        n = len(stops)
-        # Contiguous even split preserves route order.
-        buckets: list[list[dict[str, Any]]] = [[] for _ in range(days)]
-        if n >= days:
-            base, rem = divmod(n, days)
-            idx = 0
-            for day_i in range(days):
-                take = base + (1 if day_i < rem else 0)
-                for stop in stops[idx : idx + take]:
-                    row = dict(stop)
-                    row["day"] = day_i + 1
-                    buckets[day_i].append(row)
-                idx += take
-        else:
-            for i, stop in enumerate(stops):
-                row = dict(stop)
-                row["day"] = i + 1
-                buckets[i].append(row)
-
-        reassigned = [stop for bucket in buckets for stop in bucket]
-
-        # Final pass: if any day still empty and another has 2+, move one over.
-        if n >= days:
-            by_day: dict[int, list[dict[str, Any]]] = {
-                d: [] for d in range(1, days + 1)
-            }
-            for stop in reassigned:
-                by_day[int(stop["day"])].append(stop)
-            for empty_day in range(1, days + 1):
-                if by_day[empty_day]:
-                    continue
-                donor_day = next(
-                    (d for d in range(1, days + 1) if len(by_day[d]) > 1),
-                    None,
-                )
-                if donor_day is None:
-                    break
-                moved = by_day[donor_day].pop()
-                moved["day"] = empty_day
-                by_day[empty_day].append(moved)
-            reassigned = [
-                stop
-                for day_i in range(1, days + 1)
-                for stop in by_day[day_i]
-            ]
-            # Restore corridor order (original stops order) with new day labels.
-            day_by_id = {str(s["id"]): int(s["day"]) for s in reassigned}
-            ordered: list[dict[str, Any]] = []
-            for stop in stops:
-                row = dict(stop)
-                row["day"] = day_by_id.get(str(stop["id"]), int(row.get("day") or 1))
-                ordered.append(row)
-            reassigned = ordered
-
-        end_place = dict(end)
-        last_stop_day = max((int(s.get("day") or 1) for s in reassigned), default=1)
-        end_place["day"] = (
-            days
-            if any(int(s.get("day") or 1) == days for s in reassigned)
-            else min(days, last_stop_day)
-        )
-
-        return [{**start, "role": "start", "stay_min": 0}, *reassigned, end_place]
-
     def _build_legs(
         self,
         path: list[dict[str, Any]],
         *,
         preferred_mode: str = "driving",
+        notes: list[str] | None = None,
     ) -> list[dict[str, Any]]:
+        notes = notes if notes is not None else []
         points = [(p["latitude"], p["longitude"]) for p in path]
-        google_legs = (
-            self._maps.route_waypoints(points, mode="driving")
-            if len(points) >= 2
-            else []
-        )
+        walking_legs: list[dict[str, Any]] = []
+        driving_legs: list[dict[str, Any]] = []
+        transit_legs: list[dict[str, Any] | None] = []
+
+        if preferred_mode == "walking":
+            walking_legs = self._route_road(points, mode="walking")
+        elif preferred_mode == "transit":
+            transit_legs = self._route_transit_pairs(points)
+            missing = [
+                index
+                for index, leg in enumerate(transit_legs)
+                if not self._usable_route(leg)
+            ]
+            if missing:
+                driving_legs = self._route_road(points, mode="driving")
+        else:
+            driving_legs = self._route_road(points, mode="driving")
+
         legs: list[dict[str, Any]] = []
         for index, (a, b) in enumerate(zip(path, path[1:])):
-            driving = google_legs[index] if index < len(google_legs) else None
-            options = self._mode_metrics(a, b, driving=driving)
+            driving = driving_legs[index] if index < len(driving_legs) else None
+            walking = walking_legs[index] if index < len(walking_legs) else None
+            transit = transit_legs[index] if index < len(transit_legs) else None
+            if preferred_mode == "transit" and not self._usable_route(transit):
+                notes.append(
+                    f"{a['name']} → {b['name']} 没有公共交通，该路段改用驾车。"
+                )
+                transit = None
+            options = self._mode_metrics(
+                a,
+                b,
+                driving=driving,
+                walking=walking,
+                transit=transit,
+                preferred_mode=preferred_mode,
+            )
             default = self._pick_default_option(
                 options, preferred_mode=preferred_mode
             )
-            road_path = []
-            if driving and isinstance(driving.get("path"), list):
+            selected_route = {
+                "walking": walking,
+                "transit": transit,
+                "driving": driving,
+            }.get(str(default.get("mode") or ""))
+            road_path: list[Any] = []
+            if selected_route and isinstance(selected_route.get("path"), list):
+                road_path = selected_route["path"]
+            if len(road_path) < 2 and driving and isinstance(driving.get("path"), list):
                 road_path = driving["path"]
             if len(road_path) < 2:
                 road_path = [
                     [a["latitude"], a["longitude"]],
                     [b["latitude"], b["longitude"]],
                 ]
+            steps: list[Any] = []
+            if selected_route and isinstance(selected_route.get("steps"), list):
+                steps = selected_route["steps"]
             legs.append(
                 {
                     "from_place": {"id": a["id"], "name": a["name"]},
@@ -838,11 +1033,137 @@ class ItineraryGenerationService:
                     "transport_options": options,
                     "selected_mode": default["mode"],
                     "day": int(b.get("day") or a.get("day") or 1),
-                    "steps": [],
+                    "steps": steps,
                     "path": road_path,
                 }
             )
         return legs
+
+    def _route_road(
+        self,
+        points: list[tuple[float, float]],
+        *,
+        mode: str,
+    ) -> list[dict[str, Any]]:
+        if len(points) < 2:
+            return []
+        google = self._maps.route_waypoints(points, mode=mode) if points else []
+        n_legs = len(points) - 1
+        need_geometry = False
+        need_osrm_steps = False
+        for index in range(n_legs):
+            google_leg = google[index] if index < len(google) else None
+            if not self._usable_route(google_leg):
+                need_geometry = True
+                need_osrm_steps = True
+                continue
+            path = (google_leg or {}).get("path") or []
+            if len(path) < 3:
+                need_geometry = True
+            if not ((google_leg or {}).get("steps") or []):
+                need_osrm_steps = True
+
+        osrm: list[dict[str, Any]] = []
+        if need_geometry or need_osrm_steps:
+            osrm = self._osrm.route_waypoints(
+                points, mode=mode, include_steps=need_osrm_steps
+            )
+
+        speed = _pack_speed_kmh(mode)
+        filled: list[dict[str, Any]] = []
+        for index in range(n_legs):
+            filled.append(
+                self._merge_road_leg(
+                    google[index] if index < len(google) else None,
+                    osrm[index] if index < len(osrm) else None,
+                    points[index],
+                    points[index + 1],
+                    speed_kmh=speed,
+                )
+            )
+        return filled
+
+    def _merge_road_leg(
+        self,
+        google: dict[str, Any] | None,
+        osrm: dict[str, Any] | None,
+        origin: tuple[float, float],
+        dest: tuple[float, float],
+        *,
+        speed_kmh: float,
+    ) -> dict[str, Any]:
+        """Keep Google duration/steps; borrow OSRM path only when the polyline is thin."""
+        if self._usable_route(google) and google is not None:
+            merged = dict(google)
+            path = merged.get("path") or []
+            osrm_path = (osrm or {}).get("path") or []
+            if len(path) < 3 and isinstance(osrm_path, list) and len(osrm_path) >= 3:
+                merged["path"] = osrm_path
+            if not (merged.get("steps") or []) and (osrm or {}).get("steps"):
+                merged["steps"] = osrm["steps"]
+            return merged
+        if self._usable_route(osrm) and osrm is not None:
+            return dict(osrm)
+        return estimate_route(origin, dest, speed_kmh=speed_kmh)
+
+    def _route_transit_pairs(
+        self, points: list[tuple[float, float]]
+    ) -> list[dict[str, Any] | None]:
+        if len(points) < 2:
+            return []
+        raw = self._maps.route_waypoints(points, mode="transit")
+        result: list[dict[str, Any] | None] = []
+        for index in range(len(points) - 1):
+            leg = raw[index] if index < len(raw) else None
+            result.append(leg if self._usable_route(leg) else None)
+        return result
+
+    @staticmethod
+    def _usable_route(leg: dict[str, Any] | None) -> bool:
+        if not leg:
+            return False
+        if leg.get("unavailable"):
+            return False
+        try:
+            return float(leg.get("distance_km") or 0) > 0
+        except (TypeError, ValueError):
+            return False
+
+    @staticmethod
+    def _over_budget_note(day: int, hours_per_day: int) -> str:
+        return (
+            f"Day {day} is over the {hours_per_day} hrs/day plan. "
+            f"You can edit Day {day} below — shorten a stay, "
+            "move a stop to another day, or remove one."
+        )
+
+    @staticmethod
+    def _note_straight_line_route(
+        notes: list[str],
+        legs: list[dict[str, Any]],
+    ) -> None:
+        straight = False
+        for leg in legs:
+            path = leg.get("path") or []
+            driving = next(
+                (
+                    opt
+                    for opt in leg.get("transport_options") or []
+                    if opt.get("mode") == "driving"
+                ),
+                None,
+            )
+            if (driving and driving.get("is_estimated")) and len(path) < 3:
+                straight = True
+                break
+            if len(path) < 3:
+                straight = True
+                break
+        if straight:
+            notes.append(
+                "Route path is estimated (straight line); "
+                "road geometry was unavailable."
+            )
 
     def _build_day_totals(
         self,
@@ -879,6 +1200,17 @@ class ItineraryGenerationService:
         *,
         preferred_mode: str = "driving",
     ) -> dict[str, Any]:
+        if preferred_mode == "walking":
+            walking = next((o for o in options if o.get("mode") == "walking"), None)
+            if walking:
+                return walking
+        if preferred_mode == "transit":
+            transit = next((o for o in options if o.get("mode") == "transit"), None)
+            if transit:
+                return transit
+            driving = next((o for o in options if o.get("mode") == "driving"), None)
+            if driving:
+                return driving
         if preferred_mode == "driving":
             driving = next((o for o in options if o.get("mode") == "driving"), None)
             if driving:
@@ -905,28 +1237,41 @@ class ItineraryGenerationService:
         b: dict[str, Any],
         *,
         driving: dict[str, Any] | None = None,
+        walking: dict[str, Any] | None = None,
+        transit: dict[str, Any] | None = None,
+        preferred_mode: str = "driving",
     ) -> list[dict[str, Any]]:
         origin = (a["latitude"], a["longitude"])
         dest = (b["latitude"], b["longitude"])
-        if driving is None or not driving.get("distance_km"):
-            driving = estimate_route(origin, dest, speed_kmh=_MODE_SPEEDS_KMH["driving"])
-        walking = self._walking_metrics(
-            origin,
-            dest,
-            driving_distance_km=float(driving["distance_km"]),
-        )
+        if not self._usable_route(driving):
+            driving = estimate_route(
+                origin, dest, speed_kmh=_MODE_SPEEDS_KMH["driving"]
+            )
+        if not self._usable_route(walking):
+            if preferred_mode == "driving":
+                walking = self._walking_metrics(
+                    origin,
+                    dest,
+                    driving_distance_km=float(driving["distance_km"]),
+                )
+            else:
+                walking = estimate_route(
+                    origin, dest, speed_kmh=_MODE_SPEEDS_KMH["walking"]
+                )
 
-        carbon_payload = self._carbon.estimate(
-            [
-                {"mode": "driving", "distance_km": driving["distance_km"]},
-                {"mode": "walking", "distance_km": walking["distance_km"]},
-                {"mode": "bus", "distance_km": driving["distance_km"]},
-                {"mode": "train", "distance_km": driving["distance_km"]},
-            ]
-        )
+        carbon_items = [
+            {"mode": "driving", "distance_km": driving["distance_km"]},
+            {"mode": "walking", "distance_km": walking["distance_km"]},
+            {"mode": "bus", "distance_km": driving["distance_km"]},
+            {"mode": "train", "distance_km": driving["distance_km"]},
+        ]
+        carbon_payload = self._carbon.estimate(carbon_items)
         carbon_values = [r["carbon_kg"] for r in carbon_payload["results"]]
+        transit_route = transit if self._usable_route(transit) else None
+        if transit_route is not None:
+            carbon_values.append(self._transit_carbon_kg(transit_route))
 
-        prefer_walk = (
+        prefer_walk = preferred_mode == "walking" or (
             float(walking["distance_km"]) <= _MAX_WALK_KM
             and int(walking["duration_min"]) <= _MAX_WALK_MIN
         )
@@ -937,7 +1282,7 @@ class ItineraryGenerationService:
                 "duration_min": int(driving["duration_min"]),
                 "distance_km": float(driving["distance_km"]),
                 "carbon_kg": carbon_values[0],
-                "is_default": not prefer_walk,
+                "is_default": preferred_mode == "driving" and not prefer_walk,
                 "is_estimated": bool(driving.get("is_estimated")),
             },
             {
@@ -957,18 +1302,61 @@ class ItineraryGenerationService:
                 "is_estimated": True,
             },
         ]
-        if float(walking["distance_km"]) <= _MAX_WALK_KM:
+        if preferred_mode == "walking" or float(walking["distance_km"]) <= _MAX_WALK_KM:
             options.append(
                 {
                     "mode": "walking",
                     "duration_min": int(walking["duration_min"]),
                     "distance_km": float(walking["distance_km"]),
                     "carbon_kg": carbon_values[1],
-                    "is_default": prefer_walk,
+                    "is_default": prefer_walk and preferred_mode != "transit",
                     "is_estimated": bool(walking.get("is_estimated")),
                 }
             )
+        if transit_route is not None:
+            options.append(
+                {
+                    "mode": "transit",
+                    "duration_min": int(transit_route["duration_min"]),
+                    "distance_km": float(transit_route["distance_km"]),
+                    "carbon_kg": carbon_values[4],
+                    "is_default": preferred_mode == "transit",
+                    "is_estimated": bool(transit_route.get("is_estimated")),
+                }
+            )
         return options
+
+    def _transit_carbon_kg(self, transit_route: dict[str, Any]) -> float:
+        """Sum distance × factor per Rapid Bus / MRT / walk step."""
+        steps = transit_route.get("steps") or []
+        items: list[dict[str, Any]] = []
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            km = float(step.get("distance_m") or 0) / 1000.0
+            kind = str(step.get("kind") or "")
+            if kind == "walk":
+                items.append({"mode": "walking", "distance_km": km})
+            elif kind == "transit":
+                vehicle = str(step.get("vehicle") or "bus").lower()
+                items.append(
+                    {
+                        "mode": "train" if vehicle == "train" else "bus",
+                        "distance_km": km,
+                    }
+                )
+        if items:
+            return float(self._carbon.estimate(items)["total_carbon_kg"])
+        kind = str(transit_route.get("transit_kind") or "bus").lower()
+        payload = self._carbon.estimate(
+            [
+                {
+                    "mode": "train" if kind == "train" else "bus",
+                    "distance_km": float(transit_route.get("distance_km") or 0),
+                }
+            ]
+        )
+        return float(payload["results"][0]["carbon_kg"])
 
     def _walking_metrics(
         self,
@@ -1015,6 +1403,6 @@ class ItineraryGenerationService:
         minutes = haversine_duration_min(
             (a["latitude"], a["longitude"]),
             (b["latitude"], b["longitude"]),
-            speed_kmh=_MODE_SPEEDS_KMH["driving"],
+            speed_kmh=_pack_speed_kmh(self._preferred_mode),
         )
         return max(1, int(round(minutes)))

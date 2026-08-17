@@ -34,6 +34,47 @@ def haversine_duration_min(
     return (road_km / max(speed_kmh, 1.0)) * 60.0
 
 
+def route_projection(
+    point: tuple[float, float],
+    start: tuple[float, float],
+    end: tuple[float, float],
+) -> tuple[float, float]:
+    """Project a point onto start→end.
+
+    Returns (t, distance_km) where t is clamped to [0, 1] along the
+    segment (0 = start, 1 = end) and distance_km is the equirectangular
+    distance from the point to the closest point on the segment.
+    """
+    lat0 = math.radians((start[0] + end[0]) / 2.0)
+
+    def to_xy(lat: float, lon: float) -> tuple[float, float]:
+        x = math.radians(lon) * math.cos(lat0) * _EARTH_RADIUS_KM
+        y = math.radians(lat) * _EARTH_RADIUS_KM
+        return x, y
+
+    px, py = to_xy(*point)
+    ax, ay = to_xy(*start)
+    bx, by = to_xy(*end)
+    abx, aby = bx - ax, by - ay
+    apx, apy = px - ax, py - ay
+    ab2 = abx * abx + aby * aby
+    if ab2 < 1e-9:
+        return 0.0, haversine_km(point, start)
+    t = max(0.0, min(1.0, (apx * abx + apy * aby) / ab2))
+    cx, cy = ax + t * abx, ay + t * aby
+    return t, math.hypot(px - cx, py - cy)
+
+
+def point_to_segment_km(
+    point: tuple[float, float],
+    start: tuple[float, float],
+    end: tuple[float, float],
+) -> float:
+    """Approximate distance from a point to the start→end segment (km)."""
+    _t, dist = route_projection(point, start, end)
+    return dist
+
+
 def estimate_route(
     a: tuple[float, float],
     b: tuple[float, float],
@@ -88,3 +129,44 @@ def decode_polyline(encoded: str) -> list[list[float]]:
         points.append([lat / 1e5, lng / 1e5])
 
     return points
+
+
+def split_polyline_by_waypoints(
+    line: list[list[float]],
+    waypoints: list[tuple[float, float]],
+) -> list[list[list[float]]]:
+    """Slice a road polyline into one chunk per consecutive waypoint pair."""
+    if len(waypoints) < 2 or len(line) < 2:
+        return []
+
+    def nearest(wp: tuple[float, float], lo: int, hi: int) -> int:
+        best_i = lo
+        best_d = float("inf")
+        for i in range(lo, max(lo + 1, hi)):
+            point = line[i]
+            dist = haversine_km((float(point[0]), float(point[1])), wp)
+            if dist < best_d:
+                best_d = dist
+                best_i = i
+        return best_i
+
+    indices = [0] * len(waypoints)
+    indices[0] = nearest(waypoints[0], 0, len(line))
+    indices[-1] = nearest(waypoints[-1], indices[0], len(line))
+    for k in range(1, len(waypoints) - 1):
+        indices[k] = nearest(waypoints[k], indices[k - 1], len(line))
+    for k in range(1, len(indices)):
+        if indices[k] <= indices[k - 1]:
+            indices[k] = min(len(line) - 1, indices[k - 1] + 1)
+
+    chunks: list[list[list[float]]] = []
+    for i in range(len(waypoints) - 1):
+        start_i = indices[i]
+        end_i = indices[i + 1]
+        chunk = line[start_i : end_i + 1]
+        if len(chunk) < 2:
+            a = waypoints[i]
+            b = waypoints[i + 1]
+            chunk = [[a[0], a[1]], [b[0], b[1]]]
+        chunks.append(chunk)
+    return chunks

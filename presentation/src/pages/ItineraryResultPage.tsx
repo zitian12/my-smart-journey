@@ -8,14 +8,16 @@ import { recomputeItinerary, saveItinerary } from "../services/itineraryApi";
 import type { Destination } from "../types/destination";
 import type {
   ItineraryGenerateResponse,
+  ItineraryLeg,
   ItineraryResultState,
   OrderedDestination,
   PlaceCoords,
   PlaceInput,
   RecomputeStopInput,
+  RouteStep,
 } from "../types/itinerary";
 import { ITINERARY_RESULT_STORAGE_KEY } from "../types/itinerary";
-import { ratingLabel, resolveSustainability } from "../utils/sustainability";
+import { ratingLabel, resolveSustainability, modeLabel } from "../utils/sustainability";
 
 const STAY_OPTIONS = [30, 60, 90, 120, 150, 180, 240, 360, 480];
 
@@ -38,6 +40,156 @@ function formatMinutes(minutes: number): string {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   return m ? `${h}h ${m}m` : `${h}h`;
+}
+
+function formatStepDistance(meters: number | undefined): string {
+  if (meters == null || Number.isNaN(meters)) return "";
+  if (meters < 1000) return `${Math.round(meters)} m`;
+  return `${(meters / 1000).toFixed(1)} km`;
+}
+
+function maneuverArrow(maneuver: string | null | undefined): string {
+  const key = (maneuver || "").toLowerCase();
+  if (key.includes("uturn")) return "↩";
+  if (key.includes("slight") && key.includes("left")) return "↖";
+  if (key.includes("slight") && key.includes("right")) return "↗";
+  if (key.includes("left")) return "←";
+  if (key.includes("right")) return "→";
+  return "↑";
+}
+
+function transitLineLabel(step: RouteStep): string {
+  const line = (step.line || "").trim();
+  const agency = (step.agency || "").trim();
+  if (line && agency && !line.toLowerCase().includes("rapid") && /rapid/i.test(agency)) {
+    return `${agency} · ${line}`;
+  }
+  return line || agency || "Public transport";
+}
+
+function mapRouteCaption(mode: string | undefined, hasDetailedRoute: boolean): string {
+  if (!hasDetailedRoute) return "Google Maps preview";
+  if (mode === "walking") return "Walking route";
+  if (mode === "transit") return "Public transport route";
+  return "Driving route";
+}
+
+function usableSteps(leg: ItineraryLeg): RouteStep[] {
+  return (leg.steps || []).filter(
+    (step) => step && (step.instruction || step.line || step.kind),
+  );
+}
+
+function LegCard({ leg }: { leg: ItineraryLeg }) {
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const hasDetails = usableSteps(leg).length > 0;
+
+  return (
+    <div className="rounded-xl bg-mist/70 px-3 py-2 text-sm text-stone">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <span className="font-medium text-ink">{leg.from_place.name}</span>{" "}
+          →{" "}
+          <span className="font-medium text-ink">{leg.to_place.name}</span>
+          <div className="mt-1 text-xs">
+            {modeLabel(leg.selected_mode)} · {leg.distance_km.toFixed(1)} km ·{" "}
+            {formatMinutes(leg.duration_min)}
+          </div>
+        </div>
+        {hasDetails ? (
+          <button
+            type="button"
+            className="shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-forest hover:bg-forest/10"
+            onClick={() => setDetailsOpen((open) => !open)}
+            aria-expanded={detailsOpen}
+          >
+            {detailsOpen ? "Hide" : "Details"}
+          </button>
+        ) : null}
+      </div>
+      {detailsOpen ? <LegDirections leg={leg} /> : null}
+    </div>
+  );
+}
+
+function LegDirections({
+  leg,
+}: {
+  leg: ItineraryLeg;
+}) {
+  const steps = usableSteps(leg);
+  if (steps.length === 0) return null;
+  const isWalk = leg.selected_mode === "walking";
+
+  return (
+    <ol className="mt-2 space-y-0 border-l border-forest/15 pl-3">
+      {steps.map((step, index) => {
+        const distance = formatStepDistance(step.distance_m);
+        const duration =
+          step.duration_min != null && step.duration_min > 0
+            ? formatMinutes(step.duration_min)
+            : "";
+        if (step.kind === "transit") {
+          const fromTo =
+            step.from_stop && step.to_stop
+              ? `${step.from_stop} → ${step.to_stop}`
+              : "";
+          return (
+            <li key={`${step.line || "transit"}-${index}`} className="relative pb-2">
+              <span className="absolute -left-[17px] top-1.5 h-2 w-2 rounded-full bg-leaf" />
+              <p className="text-xs font-medium text-ink">
+                {transitLineLabel(step)}
+                {fromTo ? ` · ${fromTo}` : ""}
+              </p>
+              {duration || distance ? (
+                <p className="text-[11px] text-stone">
+                  {[duration, distance].filter(Boolean).join(" · ")}
+                </p>
+              ) : null}
+            </li>
+          );
+        }
+        if (isWalk || step.kind === "walk") {
+          return (
+            <li key={`${step.instruction || "walk"}-${index}`} className="relative pb-2">
+              <span className="absolute -left-[19px] top-0.5 w-4 text-center text-xs text-forest">
+                {maneuverArrow(step.maneuver)}
+              </span>
+              <p className="text-xs font-medium text-ink">
+                {step.instruction || "Walk"}
+              </p>
+              {distance ? (
+                <p className="text-[11px] text-stone">{distance}</p>
+              ) : null}
+            </li>
+          );
+        }
+        const metrics = [duration, distance ? `(${distance})` : ""]
+          .filter(Boolean)
+          .join(" ");
+        return (
+          <li key={`${step.instruction || "drive"}-${index}`} className="relative pb-2">
+            <span className="absolute -left-[19px] top-0.5 text-xs text-stone">
+              ›
+            </span>
+            <p className="text-xs font-medium text-ink">
+              {step.instruction || "Continue"}
+            </p>
+            {metrics ? (
+              <p className="text-[11px] text-stone">{metrics}</p>
+            ) : null}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+function dayHubLabel(stops: OrderedDestination[]): string | undefined {
+  const labels = stops
+    .map((stop) => stop.hub_label?.trim())
+    .filter((label): label is string => Boolean(label));
+  return labels[0];
 }
 
 function pathFromLegs(
@@ -116,6 +268,7 @@ function toRecomputeStop(
     order: dest.order,
     day: dest.day,
     stay_min: dest.stay_min,
+    hub_label: dest.hub_label ?? null,
   };
 }
 
@@ -394,7 +547,7 @@ export function ItineraryResultPage() {
         return;
       }
       if (optimizeOrder) {
-        // Let the server re-order and re-pack days (顺路).
+        // Let the server re-order within each day's area.
         destinations.push({
           id: mapped.id,
           name: mapped.name,
@@ -419,7 +572,11 @@ export function ItineraryResultPage() {
         nights: itinerary.nights ?? Math.max(0, itinerary.days - 1),
         hours_per_day: itinerary.hours_per_day,
         interests: itinerary.interests,
-        preferred_mode: "driving",
+        preferred_mode:
+          itinerary.preferred_mode === "walking" ||
+          itinerary.preferred_mode === "transit"
+            ? itinerary.preferred_mode
+            : "driving",
         optimize_order: optimizeOrder,
       });
       const nextPlaces = mergePlacesAfterRecompute(places, updated, extraPlace);
@@ -569,7 +726,7 @@ export function ItineraryResultPage() {
             · {itinerary.hours_per_day} hrs/day ·{" "}
             {itinerary.destinations.length} stops
             {itinerary.preferred_mode
-              ? ` · ${itinerary.preferred_mode}`
+              ? ` · ${modeLabel(itinerary.preferred_mode)}`
               : ""}
           </p>
           {itinerary.interests.length > 0 ? (
@@ -726,6 +883,7 @@ export function ItineraryResultPage() {
             const dayStops = itinerary.destinations.filter((d) => d.day === day);
             const dayLegs = itinerary.legs.filter((leg) => leg.day === day);
             const dayTotal = itinerary.day_totals.find((d) => d.day === day);
+            const hub = dayHubLabel(dayStops);
             return (
               <article
                 key={day}
@@ -733,7 +891,7 @@ export function ItineraryResultPage() {
               >
                 <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
                   <h2 className="font-display text-xl font-semibold text-forest">
-                    Day {day}
+                    {hub ? `Day ${day} · ${hub}` : `Day ${day}`}
                   </h2>
                   {dayTotal ? (
                     <p className="text-xs text-stone">
@@ -742,6 +900,13 @@ export function ItineraryResultPage() {
                     </p>
                   ) : null}
                 </div>
+                {dayTotal &&
+                dayTotal.duration_min > itinerary.hours_per_day * 60 ? (
+                  <p className="mb-4 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-900 ring-1 ring-amber-200/80 print:hidden">
+                    This day is over {itinerary.hours_per_day} hrs. You can
+                    shorten a stay, move a stop to another day, or remove one.
+                  </p>
+                ) : null}
 
                 <ol className="space-y-4">
                   {dayStops.length === 0 ? (
@@ -830,23 +995,17 @@ export function ItineraryResultPage() {
                     <p className="text-xs font-semibold uppercase tracking-wide text-forest/70">
                       Legs
                     </p>
+                    {itinerary.preferred_mode === "walking" ? (
+                      <p className="text-[11px] text-stone">
+                        Walking directions may not always match real-world
+                        conditions.
+                      </p>
+                    ) : null}
                     {dayLegs.map((leg, index) => (
-                      <div
+                      <LegCard
                         key={`${leg.from_place.id}-${leg.to_place.id}-${index}`}
-                        className="rounded-xl bg-mist/70 px-3 py-2 text-sm text-stone"
-                      >
-                        <span className="font-medium text-ink">
-                          {leg.from_place.name}
-                        </span>{" "}
-                        →{" "}
-                        <span className="font-medium text-ink">
-                          {leg.to_place.name}
-                        </span>
-                        <div className="mt-1 text-xs">
-                          {leg.selected_mode} · {leg.distance_km.toFixed(1)} km ·{" "}
-                          {formatMinutes(leg.duration_min)}
-                        </div>
-                      </div>
+                        leg={leg}
+                      />
                     ))}
                   </div>
                 ) : null}
@@ -860,9 +1019,10 @@ export function ItineraryResultPage() {
             <div className="border-b border-forest/5 px-4 py-3">
               <h2 className="text-sm font-semibold text-ink">Route map</h2>
               <p className="text-xs text-stone">
-                {route && route.length > markers.length * 2
-                  ? "Driving route"
-                  : "Google Maps preview"}
+                {mapRouteCaption(
+                  itinerary.preferred_mode,
+                  Boolean(route && route.length > markers.length * 2),
+                )}
               </p>
             </div>
             <MalaysiaMap

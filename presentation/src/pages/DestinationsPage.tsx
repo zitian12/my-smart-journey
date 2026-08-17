@@ -303,8 +303,8 @@ export function DestinationsPage() {
           Destinations in Malaysia
         </h1>
         <p className="mt-4 text-lg text-stone">
-          Popular places with photos appear first. Tap the heart to save places
-          you love.
+          Popular places appear first, then places with photos. Tap the heart to
+          save places you love.
         </p>
       </header>
 

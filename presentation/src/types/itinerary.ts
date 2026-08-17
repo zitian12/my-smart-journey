@@ -5,6 +5,7 @@ export type PlaceInput = {
   longitude?: number | null;
   recommended_stay_minutes?: number | null;
   category_slug?: string | null;
+  hub_label?: string | null;
 };
 
 export type ItineraryGenerateRequest = {
@@ -14,7 +15,7 @@ export type ItineraryGenerateRequest = {
   nights: number;
   hours_per_day: number;
   interests?: string[];
-  preferred_mode?: "driving";
+  preferred_mode?: "driving" | "walking" | "transit";
 };
 
 export type RecomputeStopInput = PlaceInput & {
@@ -31,8 +32,8 @@ export type ItineraryRecomputeRequest = {
   nights: number;
   hours_per_day: number;
   interests?: string[];
-  preferred_mode?: "driving";
-  /** Re-order by corridor and re-pack days (used when adding a stop). */
+  preferred_mode?: "driving" | "walking" | "transit";
+  /** Re-order within each day's area (used when adding a stop). */
   optimize_order?: boolean;
 };
 
@@ -50,6 +51,7 @@ export type OrderedDestination = {
   latitude?: number | null;
   longitude?: number | null;
   category_slug?: string | null;
+  hub_label?: string | null;
 };
 
 export type TransportOption = {
@@ -61,6 +63,21 @@ export type TransportOption = {
   is_estimated: boolean;
 };
 
+export type RouteStep = {
+  kind: string;
+  instruction?: string;
+  maneuver?: string | null;
+  distance_m?: number;
+  duration_min?: number;
+  line?: string;
+  agency?: string;
+  vehicle?: string;
+  vehicle_type?: string;
+  from_stop?: string;
+  to_stop?: string;
+  num_stops?: number | null;
+};
+
 export type ItineraryLeg = {
   from_place: PlaceRef;
   to_place: PlaceRef;
@@ -69,7 +86,7 @@ export type ItineraryLeg = {
   transport_options: TransportOption[];
   selected_mode: string;
   day?: number | null;
-  steps?: Record<string, unknown>[];
+  steps?: RouteStep[];
   /** Driving polyline as [lat, lng][] */
   path?: number[][];
 };
@@ -126,6 +143,10 @@ export type SustainabilitySummary = {
 export type ItineraryGenerateResponse = {
   start_location: string;
   end_location: string;
+  start_latitude?: number | null;
+  start_longitude?: number | null;
+  end_latitude?: number | null;
+  end_longitude?: number | null;
   days: number;
   nights?: number;
   hours_per_day: number;
