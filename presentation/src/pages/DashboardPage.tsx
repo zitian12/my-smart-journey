@@ -21,6 +21,13 @@ const quickActions = [
     to: "/dashboard/my-trips",
   },
   {
+    id: "friends",
+    title: "Friends",
+    description: "Connect with travelers and share trips.",
+    ready: true as const,
+    to: "/dashboard/connections",
+  },
+  {
     id: "favourites",
     title: "Favourites",
     description: "Keep your favorite destinations in one place.",

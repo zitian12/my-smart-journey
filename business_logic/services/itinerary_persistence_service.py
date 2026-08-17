@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from database.models.itinerary import SavedItinerary
-from integration.repositories import ItineraryRepository
+from integration.repositories import ItineraryRepository, TripShareRepository
 from services.sustainability_service import SustainabilityService
 
 FALLBACK_IMAGE = (
@@ -126,8 +126,13 @@ def to_detail(doc: dict) -> dict:
 class ItineraryPersistenceService:
     """Create / list / load / rename / favourite / delete saved itineraries."""
 
-    def __init__(self, repository: ItineraryRepository | None = None) -> None:
+    def __init__(
+        self,
+        repository: ItineraryRepository | None = None,
+        share_repository: TripShareRepository | None = None,
+    ) -> None:
         self._repo = repository or ItineraryRepository()
+        self._shares = share_repository or TripShareRepository()
 
     async def save(
         self,
@@ -200,4 +205,7 @@ class ItineraryPersistenceService:
         return to_summary(updated)
 
     async def delete_for_user(self, itinerary_id: str, user_id: str) -> bool:
-        return await self._repo.delete_for_user(itinerary_id, user_id)
+        deleted = await self._repo.delete_for_user(itinerary_id, user_id)
+        if deleted:
+            await self._shares.delete_for_itinerary(itinerary_id)
+        return deleted

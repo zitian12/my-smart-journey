@@ -6,6 +6,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from schemas.profile import PublicUserProfile
+
 
 class PlaceInput(BaseModel):
     """A place selected from the destinations catalog (or typed name)."""
@@ -231,6 +233,8 @@ class SavedItinerarySummary(BaseModel):
     image: str
     is_favourite: bool
     created_at: str | None = None
+    is_read_only: bool = False
+    shared_by: PublicUserProfile | None = None
 
 
 class SavedItineraryDetail(SavedItinerarySummary):

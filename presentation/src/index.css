@@ -45,6 +45,15 @@ body {
   }
 }
 
+@keyframes daily-progress {
+  from {
+    width: 0%;
+  }
+  to {
+    width: 100%;
+  }
+}
+
 @utility animate-fade-up {
   animation: fade-up 0.7s ease-out both;
 }
@@ -53,7 +62,12 @@ body {
   animation: hero-zoom 8s ease-out both;
 }
 
-.msj-google-map {
+@utility animate-daily-progress {
+  animation: daily-progress 5s linear forwards;
+}
+
+.msj-google-map,
+.leaflet-container {
   font-family: var(--font-sans);
 }
 
@@ -72,7 +86,8 @@ body {
     -webkit-print-color-adjust: exact;
   }
 
-  .msj-google-map {
+  .msj-google-map,
+  .leaflet-container {
     display: none !important;
   }
 }

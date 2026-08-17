@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { usePendingCounts } from "../context/PendingCountsContext";
 import {
   deleteItinerary,
   getItinerary,
@@ -8,10 +9,21 @@ import {
   renameItinerary,
   setItineraryFavourite,
 } from "../services/itineraryApi";
+import { listFriends } from "../services/connectionApi";
+import {
+  acceptTripShare,
+  declineTripShare,
+  inviteFriendToTrip,
+  listItineraryShares,
+  listPendingTripShares,
+  listSharedItineraries,
+  revokeTripShare,
+} from "../services/tripShareApi";
+import type { ConnectionItem, TripShareItem } from "../types/connection";
 import type { SavedItinerarySummary } from "../types/itinerary";
 import { ITINERARY_RESULT_STORAGE_KEY } from "../types/itinerary";
 
-type FilterMode = "all" | "favourites";
+type FilterMode = "all" | "favourites" | "shared";
 
 function IconSparkle() {
   return (
@@ -140,21 +152,36 @@ function IconRouteEnd() {
   );
 }
 
-type TripCardProps = {
-  trip: SavedItinerarySummary;
-  busy: boolean;
-  onOpen: (trip: SavedItinerarySummary) => void;
-  onViewEcoScore: (trip: SavedItinerarySummary) => void;
-  onToggleFavourite: (trip: SavedItinerarySummary) => void;
-  onRename: (trip: SavedItinerarySummary) => void;
-  onDelete: (trip: SavedItinerarySummary) => void;
-};
+function IconInvite() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2M11.5 7.5a4 4 0 1 1-8 0 4 4 0 0 1 8 0ZM19 8v6M16 11h6"
+      />
+    </svg>
+  );
+}
 
 function tripDateKey(trip: SavedItinerarySummary): string | null {
   const raw = trip.created_at;
   if (!raw) return null;
   return raw.slice(0, 10);
 }
+
+type TripCardProps = {
+  trip: SavedItinerarySummary;
+  busy: boolean;
+  readOnly?: boolean;
+  sharedByName?: string;
+  onOpen: (trip: SavedItinerarySummary) => void;
+  onViewEcoScore: (trip: SavedItinerarySummary) => void;
+  onToggleFavourite: (trip: SavedItinerarySummary) => void;
+  onRename: (trip: SavedItinerarySummary) => void;
+  onDelete: (trip: SavedItinerarySummary) => void;
+  onInvite?: (trip: SavedItinerarySummary) => void;
+};
 
 function matchesDestination(trip: SavedItinerarySummary, query: string): boolean {
   const needle = query.trim().toLowerCase();
@@ -173,11 +200,14 @@ function matchesDestination(trip: SavedItinerarySummary, query: string): boolean
 function TripCard({
   trip,
   busy,
+  readOnly,
+  sharedByName,
   onOpen,
   onViewEcoScore,
   onToggleFavourite,
   onRename,
   onDelete,
+  onInvite,
 }: TripCardProps) {
   const statusLabel = trip.status === "upcoming" ? "Upcoming" : "Completed";
 
@@ -223,29 +253,42 @@ function TripCard({
           </div>
 
           <div className="flex items-center gap-1">
-            <button
-              type="button"
-              aria-label="Favourite"
-              disabled={busy}
-              onClick={() => onToggleFavourite(trip)}
-              className={[
-                "rounded-lg p-1.5 transition hover:bg-mist",
-                trip.is_favourite
-                  ? "text-red-500 hover:text-red-600"
-                  : "text-stone hover:text-forest",
-              ].join(" ")}
-            >
-              <IconHeart filled={trip.is_favourite} />
-            </button>
-            <button
-              type="button"
-              aria-label="Rename trip"
-              disabled={busy}
-              onClick={() => onRename(trip)}
-              className="rounded-lg p-1.5 text-stone transition hover:bg-mist hover:text-forest"
-            >
-              <IconRename />
-            </button>
+            {readOnly ? null : (
+              <>
+                <button
+                  type="button"
+                  aria-label="Invite friend"
+                  disabled={busy}
+                  onClick={() => onInvite?.(trip)}
+                  className="rounded-lg p-1.5 text-stone transition hover:bg-mist hover:text-forest"
+                >
+                  <IconInvite />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Favourite"
+                  disabled={busy}
+                  onClick={() => onToggleFavourite(trip)}
+                  className={[
+                    "rounded-lg p-1.5 transition hover:bg-mist",
+                    trip.is_favourite
+                      ? "text-red-500 hover:text-red-600"
+                      : "text-stone hover:text-forest",
+                  ].join(" ")}
+                >
+                  <IconHeart filled={trip.is_favourite} />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Rename trip"
+                  disabled={busy}
+                  onClick={() => onRename(trip)}
+                  className="rounded-lg p-1.5 text-stone transition hover:bg-mist hover:text-forest"
+                >
+                  <IconRename />
+                </button>
+              </>
+            )}
             <button
               type="button"
               aria-label="Open trip"
@@ -255,15 +298,17 @@ function TripCard({
             >
               <IconEdit />
             </button>
-            <button
-              type="button"
-              aria-label="Delete trip"
-              disabled={busy}
-              onClick={() => onDelete(trip)}
-              className="rounded-lg p-1.5 text-red-400 transition hover:bg-red-50 hover:text-red-500"
-            >
-              <IconTrash />
-            </button>
+            {readOnly ? null : (
+              <button
+                type="button"
+                aria-label="Delete trip"
+                disabled={busy}
+                onClick={() => onDelete(trip)}
+                className="rounded-lg p-1.5 text-red-400 transition hover:bg-red-50 hover:text-red-500"
+              >
+                <IconTrash />
+              </button>
+            )}
           </div>
         </div>
 
@@ -275,6 +320,9 @@ function TripCard({
         >
           <h2 className="text-lg font-semibold text-ink sm:text-xl">{trip.name}</h2>
         </button>
+        {sharedByName ? (
+          <p className="text-xs font-medium text-leaf">Shared by {sharedByName}</p>
+        ) : null}
 
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-stone">
           <span className="inline-flex items-center gap-1">
@@ -321,11 +369,14 @@ function TripCard({
 export function MyTripsPage() {
   const navigate = useNavigate();
   const { isAuthenticated, getAccessToken } = useAuth();
+  const { refreshPending } = usePendingCounts();
   const [filter, setFilter] = useState<FilterMode>("all");
   const [destinationQuery, setDestinationQuery] = useState("");
   const [durationDays, setDurationDays] = useState<number | "any">("any");
   const [createdOn, setCreatedOn] = useState("");
   const [trips, setTrips] = useState<SavedItinerarySummary[]>([]);
+  const [sharedTrips, setSharedTrips] = useState<SavedItinerarySummary[]>([]);
+  const [pendingInvites, setPendingInvites] = useState<TripShareItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -334,6 +385,13 @@ export function MyTripsPage() {
   );
   const [renameName, setRenameName] = useState("");
   const [renameBusy, setRenameBusy] = useState(false);
+  const [invitingTrip, setInvitingTrip] = useState<SavedItinerarySummary | null>(
+    null,
+  );
+  const [friends, setFriends] = useState<ConnectionItem[]>([]);
+  const [tripShares, setTripShares] = useState<TripShareItem[]>([]);
+  const [inviteBusyId, setInviteBusyId] = useState<string | null>(null);
+  const [inviteError, setInviteError] = useState<string | null>(null);
 
   const todayLabel = useMemo(
     () =>
@@ -350,6 +408,8 @@ export function MyTripsPage() {
     const token = getAccessToken();
     if (!token) {
       setTrips([]);
+      setSharedTrips([]);
+      setPendingInvites([]);
       setLoading(false);
       return;
     }
@@ -357,11 +417,19 @@ export function MyTripsPage() {
     setLoading(true);
     setError(null);
     try {
-      const data = await listItineraries(token);
-      setTrips(data);
+      const [owned, shared, pending] = await Promise.all([
+        listItineraries(token),
+        listSharedItineraries(token),
+        listPendingTripShares(token),
+      ]);
+      setTrips(owned);
+      setSharedTrips(shared);
+      setPendingInvites(pending);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load trips");
       setTrips([]);
+      setSharedTrips([]);
+      setPendingInvites([]);
     } finally {
       setLoading(false);
     }
@@ -372,26 +440,26 @@ export function MyTripsPage() {
   }, [loadTrips, isAuthenticated]);
 
   const durationOptions = useMemo(() => {
-    const unique = new Set(trips.map((trip) => trip.days));
+    const source = filter === "shared" ? sharedTrips : trips;
+    const unique = new Set(source.map((trip) => trip.days));
     return [...unique].sort((a, b) => a - b);
-  }, [trips]);
+  }, [filter, sharedTrips, trips]);
 
   const hasExtraFilters =
     destinationQuery.trim().length > 0 ||
     durationDays !== "any" ||
     createdOn !== "";
 
-  const visibleTrips = useMemo(
-    () =>
-      trips.filter((trip) => {
-        if (filter === "favourites" && !trip.is_favourite) return false;
-        if (!matchesDestination(trip, destinationQuery)) return false;
-        if (durationDays !== "any" && trip.days !== durationDays) return false;
-        if (createdOn && tripDateKey(trip) !== createdOn) return false;
-        return true;
-      }),
-    [createdOn, destinationQuery, durationDays, filter, trips],
-  );
+  const visibleTrips = useMemo(() => {
+    const source = filter === "shared" ? sharedTrips : trips;
+    return source.filter((trip) => {
+      if (filter === "favourites" && !trip.is_favourite) return false;
+      if (!matchesDestination(trip, destinationQuery)) return false;
+      if (durationDays !== "any" && trip.days !== durationDays) return false;
+      if (createdOn && tripDateKey(trip) !== createdOn) return false;
+      return true;
+    });
+  }, [createdOn, destinationQuery, durationDays, filter, sharedTrips, trips]);
 
   const onOpen = async (trip: SavedItinerarySummary) => {
     const token = getAccessToken();
@@ -403,9 +471,14 @@ export function MyTripsPage() {
     setError(null);
     try {
       const detail = await getItinerary(token, trip.id);
+      const sharedBy = detail.shared_by;
       const state = {
         itinerary: detail.itinerary,
         places: detail.places,
+        readOnly: Boolean(detail.is_read_only),
+        sharedByName: sharedBy
+          ? sharedBy.nickname.trim() || sharedBy.full_name || sharedBy.email
+          : undefined,
       };
       sessionStorage.setItem(ITINERARY_RESULT_STORAGE_KEY, JSON.stringify(state));
       navigate("/dashboard/planning/result", { state });
@@ -456,6 +529,104 @@ export function MyTripsPage() {
       setTrips((prev) => prev.filter((item) => item.id !== trip.id));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete trip");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const friendName = (item: ConnectionItem | TripShareItem) =>
+    item.user.nickname.trim() || item.user.full_name || item.user.email;
+
+  const openInvite = async (trip: SavedItinerarySummary) => {
+    const token = getAccessToken();
+    if (!token) {
+      setError("Please sign in to invite friends.");
+      return;
+    }
+    setInvitingTrip(trip);
+    setInviteError(null);
+    setFriends([]);
+    setTripShares([]);
+    try {
+      const [friendRows, shareRows] = await Promise.all([
+        listFriends(token),
+        listItineraryShares(token, trip.id),
+      ]);
+      setFriends(friendRows);
+      setTripShares(shareRows);
+    } catch (err) {
+      setInviteError(
+        err instanceof Error ? err.message : "Failed to load friends",
+      );
+    }
+  };
+
+  const onInviteFriend = async (friend: ConnectionItem) => {
+    if (!invitingTrip) return;
+    const token = getAccessToken();
+    if (!token) return;
+    setInviteBusyId(friend.user.id);
+    setInviteError(null);
+    try {
+      const created = await inviteFriendToTrip(
+        token,
+        invitingTrip.id,
+        friend.user.id,
+      );
+      setTripShares((prev) => [
+        created,
+        ...prev.filter((item) => item.user.id !== friend.user.id),
+      ]);
+    } catch (err) {
+      setInviteError(err instanceof Error ? err.message : "Failed to invite");
+    } finally {
+      setInviteBusyId(null);
+    }
+  };
+
+  const onRevokeShare = async (share: TripShareItem) => {
+    if (!invitingTrip) return;
+    const token = getAccessToken();
+    if (!token) return;
+    setInviteBusyId(share.user.id);
+    setInviteError(null);
+    try {
+      await revokeTripShare(token, invitingTrip.id, share.user.id);
+      setTripShares((prev) => prev.filter((item) => item.id !== share.id));
+    } catch (err) {
+      setInviteError(err instanceof Error ? err.message : "Failed to revoke");
+    } finally {
+      setInviteBusyId(null);
+    }
+  };
+
+  const onAcceptInvite = async (share: TripShareItem) => {
+    const token = getAccessToken();
+    if (!token) return;
+    setBusyId(share.id);
+    setError(null);
+    try {
+      await acceptTripShare(token, share.id);
+      await loadTrips();
+      await refreshPending();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to accept invite");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const onDeclineInvite = async (share: TripShareItem) => {
+    const token = getAccessToken();
+    if (!token) return;
+    setBusyId(share.id);
+    setError(null);
+    try {
+      await declineTripShare(token, share.id);
+      setPendingInvites((prev) => prev.filter((item) => item.id !== share.id));
+      await refreshPending();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to decline invite");
     } finally {
       setBusyId(null);
     }
@@ -543,7 +714,9 @@ export function MyTripsPage() {
             <p className="mt-0.5 text-sm text-stone">
               {loading
                 ? "Loading itineraries…"
-                : `${trips.length} itineraries saved`}
+                : filter === "shared"
+                  ? `${sharedTrips.length} shared with you`
+                  : `${trips.length} itineraries saved`}
             </p>
           </div>
           <button
@@ -565,6 +738,118 @@ export function MyTripsPage() {
           <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">
             {error}
           </p>
+        ) : null}
+
+        {pendingInvites.length > 0 ? (
+          <div className="space-y-3 rounded-2xl bg-white p-5 ring-1 ring-forest/10">
+            <h3 className="text-base font-semibold text-ink">
+              Trip invites ({pendingInvites.length})
+            </h3>
+            {pendingInvites.map((invite) => (
+              <article
+                key={invite.id}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-mist/50 px-3 py-3"
+              >
+                <div className="min-w-0">
+                  <p className="font-medium text-ink">
+                    {invite.itinerary?.name || "Shared trip"}
+                  </p>
+                  <p className="text-sm text-stone">From {friendName(invite)}</p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={busyId === invite.id}
+                    onClick={() => void onAcceptInvite(invite)}
+                    className="rounded-xl bg-forest px-3 py-2 text-sm font-semibold text-white transition hover:bg-leaf disabled:opacity-60"
+                  >
+                    Accept
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busyId === invite.id}
+                    onClick={() => void onDeclineInvite(invite)}
+                    className="rounded-xl px-3 py-2 text-sm font-medium text-stone ring-1 ring-forest/10 transition hover:bg-white disabled:opacity-60"
+                  >
+                    Decline
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : null}
+
+        {invitingTrip ? (
+          <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-forest/10 sm:p-6">
+            <h3 className="text-base font-semibold text-ink">
+              Invite friends to “{invitingTrip.name}”
+            </h3>
+            <p className="mt-1 text-sm text-stone">
+              They can view this trip after accepting. Editing stays with you.
+            </p>
+            {inviteError ? (
+              <p className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">
+                {inviteError}
+              </p>
+            ) : null}
+            {friends.length === 0 ? (
+              <p className="mt-4 text-sm text-stone">
+                No friends yet. Add someone on the Friends page first.
+              </p>
+            ) : (
+              <ul className="mt-4 space-y-2">
+                {friends.map((friend) => {
+                  const share = tripShares.find(
+                    (item) => item.user.id === friend.user.id,
+                  );
+                  const status = share?.status;
+                  return (
+                    <li
+                      key={friend.id}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-mist/40 px-3 py-2.5"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-ink">
+                          {friendName(friend)}
+                        </p>
+                        <p className="truncate text-xs text-stone">
+                          {friend.user.email}
+                          {status === "pending" ? " · invite pending" : ""}
+                          {status === "accepted" ? " · can view" : ""}
+                        </p>
+                      </div>
+                      {status === "accepted" || status === "pending" ? (
+                        <button
+                          type="button"
+                          disabled={inviteBusyId === friend.user.id}
+                          onClick={() => share && void onRevokeShare(share)}
+                          className="rounded-lg px-3 py-1.5 text-xs font-medium text-red-600 ring-1 ring-red-200 transition hover:bg-red-50 disabled:opacity-60"
+                        >
+                          Revoke
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={inviteBusyId === friend.user.id}
+                          onClick={() => void onInviteFriend(friend)}
+                          className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-amber-600 disabled:opacity-60"
+                        >
+                          Invite
+                        </button>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            <button
+              type="button"
+              onClick={() => setInvitingTrip(null)}
+              className="mt-4 rounded-xl px-4 py-2.5 text-sm font-medium text-stone ring-1 ring-forest/10 transition hover:bg-mist"
+            >
+              Done
+            </button>
+          </div>
         ) : null}
 
         {renamingTrip ? (
@@ -659,7 +944,19 @@ export function MyTripsPage() {
           >
             All ({trips.length})
           </button>
-          {filter === "favourites" || hasExtraFilters ? (
+          <button
+            type="button"
+            onClick={() => setFilter("shared")}
+            className={[
+              "rounded-full px-4 py-1.5 text-sm font-semibold transition",
+              filter === "shared"
+                ? "bg-forest text-white"
+                : "bg-white text-forest ring-1 ring-forest/10 hover:bg-mist",
+            ].join(" ")}
+          >
+            Shared with me ({sharedTrips.length})
+          </button>
+          {filter === "favourites" || filter === "shared" || hasExtraFilters ? (
             <span className="text-sm text-stone">
               Showing {visibleTrips.length}
               {filter === "favourites" ? " favourite" : ""}
@@ -679,6 +976,14 @@ export function MyTripsPage() {
                 key={trip.id}
                 trip={trip}
                 busy={busyId === trip.id}
+                readOnly={filter === "shared"}
+                sharedByName={
+                  trip.shared_by
+                    ? trip.shared_by.nickname.trim() ||
+                      trip.shared_by.full_name ||
+                      trip.shared_by.email
+                    : undefined
+                }
                 onOpen={(item) => void onOpen(item)}
                 onViewEcoScore={(item) =>
                   navigate(`/dashboard/eco-score?trip=${item.id}`)
@@ -686,15 +991,20 @@ export function MyTripsPage() {
                 onToggleFavourite={(item) => void onToggleFavourite(item)}
                 onRename={openRename}
                 onDelete={(item) => void onDelete(item)}
+                onInvite={(item) => void openInvite(item)}
               />
             ))
           ) : (
             <p className="rounded-2xl bg-white p-8 text-center text-sm text-stone ring-1 ring-forest/5">
-              {trips.length === 0
-                ? "No saved trips yet. Generate a plan and tap Save trip."
-                : filter === "favourites" && !hasExtraFilters
-                  ? "No favourite trips yet. Mark trips as favourites to see them here."
-                  : "No trips match these filters."}
+              {filter === "shared"
+                ? sharedTrips.length === 0
+                  ? "No shared trips yet. When a friend invites you, accept it here."
+                  : "No shared trips match these filters."
+                : trips.length === 0
+                  ? "No saved trips yet. Generate a plan and tap Save trip."
+                  : filter === "favourites" && !hasExtraFilters
+                    ? "No favourite trips yet. Mark trips as favourites to see them here."
+                    : "No trips match these filters."}
             </p>
           )}
         </div>

@@ -63,6 +63,26 @@ class ItineraryRepository:
         document = await self._collection.find_one({"_id": object_id})
         return self._serialize(document)
 
+    async def list_by_ids(self, itinerary_ids: list[str]) -> list[dict]:
+        """Return saved itineraries for the given ids."""
+        object_ids: list[ObjectId] = []
+        for itinerary_id in itinerary_ids:
+            try:
+                object_ids.append(ObjectId(itinerary_id))
+            except InvalidId:
+                continue
+        if not object_ids:
+            return []
+
+        cursor = self._collection.find({"_id": {"$in": object_ids}})
+        documents = await cursor.to_list(length=len(object_ids))
+        itineraries: list[dict] = []
+        for document in documents:
+            serialized = self._serialize(document)
+            if serialized is not None:
+                itineraries.append(serialized)
+        return itineraries
+
     async def delete_for_user(self, itinerary_id: str, user_id: str) -> bool:
         """Delete an itinerary owned by the user. Returns True if removed."""
         try:

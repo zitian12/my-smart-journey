@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes, useParams } from "react-router-dom";
 import { DashboardLayout } from "./components/DashboardLayout";
 import { Layout } from "./components/Layout";
+import { ConnectionsPage } from "./pages/ConnectionsPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { DestinationDetailPage } from "./pages/DestinationDetailPage";
 import { DestinationsPage } from "./pages/DestinationsPage";
@@ -39,6 +40,7 @@ export default function App() {
           <Route path="eco-score" element={<EcoScorePage />} />
           <Route path="my-trips" element={<MyTripsPage />} />
           <Route path="favourites" element={<FavouritesPage />} />
+          <Route path="connections" element={<ConnectionsPage />} />
           <Route path="profile" element={<ProfilePage />} />
         </Route>
 

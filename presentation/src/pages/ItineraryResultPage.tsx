@@ -272,6 +272,8 @@ export function ItineraryResultPage() {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [namingOpen, setNamingOpen] = useState(false);
   const [tripName, setTripName] = useState("");
+  const readOnly = Boolean(initial?.readOnly);
+  const sharedByName = initial?.sharedByName;
 
   const sustainability = useMemo(
     () => (itinerary ? resolveSustainability(itinerary) : null),
@@ -373,7 +375,7 @@ export function ItineraryResultPage() {
     nextStops: OrderedDestination[],
     options?: { extraPlace?: PlaceCoords | null; optimizeOrder?: boolean },
   ) => {
-    if (!itinerary) return;
+    if (readOnly || !itinerary) return;
     const extraPlace = options?.extraPlace ?? null;
     const optimizeOrder = options?.optimizeOrder ?? false;
     const start = resolveEndpoint(places, itinerary.start_location);
@@ -426,6 +428,8 @@ export function ItineraryResultPage() {
       const nextState: ItineraryResultState = {
         itinerary: updated,
         places: nextPlaces,
+        readOnly,
+        sharedByName,
       };
       setItinerary(updated);
       setPlaces(nextPlaces);
@@ -440,13 +444,13 @@ export function ItineraryResultPage() {
   };
 
   const onDeleteStop = (stopId: string) => {
-    if (!itinerary || busy) return;
+    if (readOnly || !itinerary || busy) return;
     const next = itinerary.destinations.filter((d) => d.id !== stopId);
     void applyRecompute(next);
   };
 
   const onStayChange = (stopId: string, stayMin: number) => {
-    if (!itinerary || busy) return;
+    if (readOnly || !itinerary || busy) return;
     const next = itinerary.destinations.map((d) =>
       d.id === stopId ? { ...d, stay_min: stayMin } : d,
     );
@@ -454,7 +458,7 @@ export function ItineraryResultPage() {
   };
 
   const onDayChange = (stopId: string, day: number) => {
-    if (!itinerary || busy) return;
+    if (readOnly || !itinerary || busy) return;
     const next = itinerary.destinations.map((d) =>
       d.id === stopId ? { ...d, day } : d,
     );
@@ -462,7 +466,7 @@ export function ItineraryResultPage() {
   };
 
   const onAddStop = (place: PlaceCoords) => {
-    if (!itinerary || busy) return;
+    if (readOnly || !itinerary || busy) return;
     if (itinerary.destinations.some((d) => d.id === place.id)) {
       setActionError("That stop is already in the plan.");
       return;
@@ -488,6 +492,7 @@ export function ItineraryResultPage() {
     : "";
 
   const openSaveDialog = () => {
+    if (readOnly) return;
     setSaveError(null);
     setSaveSuccess(false);
     if (!isAuthenticated) {
@@ -577,10 +582,18 @@ export function ItineraryResultPage() {
               Interests: {itinerary.interests.join(", ")}
             </p>
           ) : null}
-          <p className="mt-1 text-xs text-leaf print:hidden">
-            Add, edit stay, or remove stops below. New stops are inserted by
-            driving corridor (顺路), not by which day box you used.
-          </p>
+          {readOnly ? (
+            <p className="mt-2 rounded-xl bg-leaf/10 px-3 py-2 text-sm text-forest print:hidden">
+              Read-only shared trip
+              {sharedByName ? ` from ${sharedByName}` : ""}. You can view the
+              plan, but only the owner can edit it.
+            </p>
+          ) : (
+            <p className="mt-1 text-xs text-leaf print:hidden">
+              Add, edit stay, or remove stops below. New stops are inserted by
+              driving corridor (顺路), not by which day box you used.
+            </p>
+          )}
           {actionError ? (
             <p className="mt-2 text-sm text-red-700 print:hidden">{actionError}</p>
           ) : null}
@@ -629,20 +642,22 @@ export function ItineraryResultPage() {
           >
             Export PDF
           </button>
+          {readOnly ? null : (
+            <button
+              type="button"
+              onClick={openSaveDialog}
+              disabled={saveBusy || busy}
+              className="rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {saveBusy ? "Saving…" : "Save trip"}
+            </button>
+          )}
           <button
             type="button"
-            onClick={openSaveDialog}
-            disabled={saveBusy || busy}
-            className="rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {saveBusy ? "Saving…" : "Save trip"}
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate("/dashboard/planning")}
+            onClick={() => navigate(readOnly ? "/dashboard/my-trips" : "/dashboard/planning")}
             className="rounded-xl bg-forest px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-leaf"
           >
-            Plan again
+            {readOnly ? "Back to My Trips" : "Plan again"}
           </button>
         </div>
       </header>
@@ -747,7 +762,9 @@ export function ItineraryResultPage() {
                   {dayStops.length === 0 ? (
                     <li className="rounded-xl bg-mist/70 px-3 py-3 text-sm text-stone">
                       No stops yet
-                      <span className="print:hidden"> — add one from the catalog below.</span>
+                      {readOnly ? null : (
+                        <span className="print:hidden"> — add one from the catalog below.</span>
+                      )}
                     </li>
                   ) : (
                     dayStops.map((stop) => (
@@ -758,18 +775,26 @@ export function ItineraryResultPage() {
                         <div className="min-w-0 flex-1 space-y-2">
                           <div className="flex flex-wrap items-start justify-between gap-2">
                             <p className="font-medium text-ink">{stop.name}</p>
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() => onDeleteStop(stop.id)}
-                              className="rounded-lg px-2 py-1 text-xs font-medium text-red-700 ring-1 ring-red-200 transition hover:bg-red-50 disabled:opacity-50 print:hidden"
-                            >
-                              Remove
-                            </button>
+                            {readOnly ? null : (
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => onDeleteStop(stop.id)}
+                                className="rounded-lg px-2 py-1 text-xs font-medium text-red-700 ring-1 ring-red-200 transition hover:bg-red-50 disabled:opacity-50 print:hidden"
+                              >
+                                Remove
+                              </button>
+                            )}
                           </div>
-                          <p className="hidden text-xs text-stone print:block">
+                          <p
+                            className={[
+                              "text-xs text-stone",
+                              readOnly ? "" : "hidden print:block",
+                            ].join(" ")}
+                          >
                             Stay {formatMinutes(stop.stay_min)} · Day {stop.day}
                           </p>
+                          {readOnly ? null : (
                           <div className="flex flex-wrap gap-2 print:hidden">
                             <label className="flex items-center gap-1.5 text-xs text-stone">
                               Stay
@@ -811,19 +836,22 @@ export function ItineraryResultPage() {
                               </select>
                             </label>
                           </div>
+                          )}
                         </div>
                       </li>
                     ))
                   )}
                 </ol>
 
-                <div className="print:hidden">
-                  <AddStopPicker
-                    excludeIds={excludeIds}
-                    disabled={busy}
-                    onPick={(place) => onAddStop(place)}
-                  />
-                </div>
+                {readOnly ? null : (
+                  <div className="print:hidden">
+                    <AddStopPicker
+                      excludeIds={excludeIds}
+                      disabled={busy}
+                      onPick={(place) => onAddStop(place)}
+                    />
+                  </div>
+                )}
 
                 {dayLegs.length > 0 ? (
                   <div className="mt-5 space-y-2 border-t border-forest/5 pt-4">

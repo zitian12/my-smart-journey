@@ -153,6 +153,8 @@ export type PlaceCoords = {
 export type ItineraryResultState = {
   itinerary: ItineraryGenerateResponse;
   places: PlaceCoords[];
+  readOnly?: boolean;
+  sharedByName?: string;
 };
 
 export type TripStatus = "upcoming" | "completed";
@@ -177,6 +179,17 @@ export type SavedItinerarySummary = {
   image: string;
   is_favourite: boolean;
   created_at?: string | null;
+  is_read_only?: boolean;
+  shared_by?: PublicUserProfile | null;
+};
+
+export type PublicUserProfile = {
+  id: string;
+  email: string;
+  full_name: string;
+  nickname: string;
+  profile_picture: string;
+  bio?: string;
 };
 
 export type SavedItineraryDetail = SavedItinerarySummary & {

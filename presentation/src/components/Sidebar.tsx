@@ -2,6 +2,7 @@ import { useRef } from "react";
 import { GoogleLogin, type CredentialResponse } from "@react-oauth/google";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { usePendingCounts } from "../context/PendingCountsContext";
 
 type MenuItem = { id: string; label: string; to: string };
 
@@ -12,6 +13,7 @@ const menuItems: MenuItem[] = [
   { id: "eco-score", label: "Eco Score", to: "/dashboard/eco-score" },
   { id: "my-trips", label: "My Trips", to: "/dashboard/my-trips" },
   { id: "favourites", label: "Favourites", to: "/dashboard/favourites" },
+  { id: "connections", label: "Friends", to: "/dashboard/connections" },
   { id: "profile", label: "Settings", to: "/dashboard/profile" },
 ];
 
@@ -22,6 +24,7 @@ type SidebarProps = {
 
 export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
   const { user, isAuthenticated, isLoading, loginWithGoogle, logout } = useAuth();
+  const { friendPending, tripPending } = usePendingCounts();
   const navigate = useNavigate();
   const googleLoginRef = useRef<HTMLDivElement>(null);
 
@@ -82,7 +85,7 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
             onClick={onClose}
             className={({ isActive }) =>
               [
-                "block rounded-lg px-3 py-2.5 text-sm font-medium no-underline transition-colors",
+                "flex items-center rounded-lg px-3 py-2.5 text-sm font-medium no-underline transition-colors",
                 isActive
                   ? "bg-leaf/10 text-forest"
                   : "text-stone hover:bg-mist hover:text-forest",
@@ -90,6 +93,16 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
             }
           >
             {item.label}
+            {item.id === "connections" && friendPending > 0 ? (
+              <span className="ml-2 inline-flex min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 text-[11px] font-semibold text-white">
+                {friendPending}
+              </span>
+            ) : null}
+            {item.id === "my-trips" && tripPending > 0 ? (
+              <span className="ml-2 inline-flex min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 text-[11px] font-semibold text-white">
+                {tripPending}
+              </span>
+            ) : null}
           </NavLink>
         ))}
       </nav>

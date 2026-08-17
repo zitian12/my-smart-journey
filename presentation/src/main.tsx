@@ -4,6 +4,7 @@ import { GoogleOAuthProvider } from "@react-oauth/google";
 import App from "./App";
 import { ComingSoonToastProvider } from "./components/ComingSoonToast";
 import { AuthProvider } from "./context/AuthContext";
+import { PendingCountsProvider } from "./context/PendingCountsContext";
 import "./index.css";
 
 const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
@@ -16,9 +17,11 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <GoogleOAuthProvider clientId={googleClientId ?? ""}>
       <AuthProvider>
-        <ComingSoonToastProvider>
-          <App />
-        </ComingSoonToastProvider>
+        <PendingCountsProvider>
+          <ComingSoonToastProvider>
+            <App />
+          </ComingSoonToastProvider>
+        </PendingCountsProvider>
       </AuthProvider>
     </GoogleOAuthProvider>
   </StrictMode>,

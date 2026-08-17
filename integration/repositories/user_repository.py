@@ -1,6 +1,7 @@
 """User repository — data access for the users collection."""
 
 import logging
+import re
 from datetime import datetime, timezone
 
 from bson import ObjectId
@@ -59,8 +60,76 @@ class UserRepository:
 
     async def get_user_by_email(self, email: str) -> dict | None:
         """Return a user document by email, or None if not found."""
-        document = await self._collection.find_one({"email": email})
+        normalized = email.strip()
+        if not normalized:
+            return None
+
+        document = await self._collection.find_one({"email": normalized})
+        if document is None:
+            document = await self._collection.find_one(
+                {
+                    "email": {
+                        "$regex": f"^{re.escape(normalized)}$",
+                        "$options": "i",
+                    }
+                }
+            )
         return self._serialize(document)
+
+    async def search_users(
+        self,
+        query: str,
+        exclude_user_id: str | None = None,
+        limit: int = 20,
+    ) -> list[dict]:
+        """Search users by email, full name, or nickname (case-insensitive)."""
+        cleaned = query.strip()
+        if len(cleaned) < 2:
+            return []
+
+        pattern = re.escape(cleaned)
+        filters: dict = {
+            "$or": [
+                {"email": {"$regex": pattern, "$options": "i"}},
+                {"full_name": {"$regex": pattern, "$options": "i"}},
+                {"nickname": {"$regex": pattern, "$options": "i"}},
+            ]
+        }
+
+        if exclude_user_id:
+            try:
+                filters["_id"] = {"$ne": ObjectId(exclude_user_id)}
+            except InvalidId:
+                pass
+
+        cursor = self._collection.find(filters).limit(max(1, min(limit, 50)))
+        documents = await cursor.to_list(length=max(1, min(limit, 50)))
+        users: list[dict] = []
+        for document in documents:
+            serialized = self._serialize(document)
+            if serialized is not None:
+                users.append(serialized)
+        return users
+
+    async def get_users_by_ids(self, user_ids: list[str]) -> list[dict]:
+        """Return user documents for the given ids."""
+        object_ids: list[ObjectId] = []
+        for user_id in user_ids:
+            try:
+                object_ids.append(ObjectId(user_id))
+            except InvalidId:
+                continue
+        if not object_ids:
+            return []
+
+        cursor = self._collection.find({"_id": {"$in": object_ids}})
+        documents = await cursor.to_list(length=len(object_ids))
+        users: list[dict] = []
+        for document in documents:
+            serialized = self._serialize(document)
+            if serialized is not None:
+                users.append(serialized)
+        return users
 
     async def get_user_by_google_id(self, google_id: str) -> dict | None:
         """Return a user document by Google id, or None if not found."""

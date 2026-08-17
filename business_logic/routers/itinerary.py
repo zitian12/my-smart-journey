@@ -14,12 +14,15 @@ from schemas.itinerary import (
     SavedItineraryDetail,
     SavedItinerarySummary,
 )
+from schemas.trip_share import FriendSharesResponse, TripShareCreateRequest, TripShareItem
 from services.itinerary_generation_service import ItineraryGenerationService
 from services.itinerary_persistence_service import ItineraryPersistenceService
 from services.itinerary_poi_selection_service import ItineraryPoiSelectionService
+from services.trip_share_service import TripShareError, TripShareService
 
 router = APIRouter(tags=["itineraries"])
 _persistence = ItineraryPersistenceService()
+_shares = TripShareService()
 
 
 @router.post(
@@ -146,6 +149,73 @@ async def list_itineraries(
 
 
 @router.get(
+    "/api/itineraries/shared",
+    response_model=list[SavedItinerarySummary],
+)
+async def list_shared_itineraries(
+    current_user: dict = Depends(get_current_user),
+) -> list[dict]:
+    """List trips shared with the authenticated user (accepted)."""
+    return await _shares.list_shared_with_me(current_user)
+
+
+@router.get(
+    "/api/itineraries/shared/pending",
+    response_model=list[TripShareItem],
+)
+async def list_pending_trip_shares(
+    current_user: dict = Depends(get_current_user),
+) -> list[dict]:
+    """List pending trip invites for the authenticated user."""
+    return await _shares.list_pending_invites(current_user)
+
+
+@router.get(
+    "/api/itineraries/shared/with/{user_id}",
+    response_model=FriendSharesResponse,
+)
+async def list_shares_with_friend(
+    user_id: str,
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    """List trips shared between the current user and an accepted friend."""
+    try:
+        return await _shares.list_with_friend(current_user, user_id)
+    except TripShareError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+
+@router.post(
+    "/api/trip-shares/{share_id}/accept",
+    response_model=TripShareItem,
+)
+async def accept_trip_share(
+    share_id: str,
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    """Accept a trip invite."""
+    try:
+        return await _shares.accept(current_user, share_id)
+    except TripShareError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+
+@router.post(
+    "/api/trip-shares/{share_id}/decline",
+    response_model=TripShareItem,
+)
+async def decline_trip_share(
+    share_id: str,
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    """Decline a trip invite."""
+    try:
+        return await _shares.decline(current_user, share_id)
+    except TripShareError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+
+@router.get(
     "/api/itineraries/{itinerary_id}",
     response_model=SavedItineraryDetail,
 )
@@ -153,14 +223,62 @@ async def get_itinerary(
     itinerary_id: str,
     current_user: dict = Depends(get_current_user),
 ) -> dict:
-    """Load a saved itinerary snapshot owned by the authenticated user."""
-    detail = await _persistence.get_for_user(itinerary_id, str(current_user["id"]))
+    """Load a saved itinerary owned by the user or shared with them."""
+    detail = await _shares.get_for_viewer(current_user, itinerary_id)
     if detail is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Itinerary not found",
         )
     return detail
+
+
+@router.post(
+    "/api/itineraries/{itinerary_id}/shares",
+    response_model=TripShareItem,
+    status_code=status.HTTP_201_CREATED,
+)
+async def share_itinerary(
+    itinerary_id: str,
+    body: TripShareCreateRequest,
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    """Invite an accepted friend to view this trip."""
+    try:
+        return await _shares.invite(current_user, itinerary_id, body.user_id)
+    except TripShareError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+
+@router.get(
+    "/api/itineraries/{itinerary_id}/shares",
+    response_model=list[TripShareItem],
+)
+async def list_itinerary_shares(
+    itinerary_id: str,
+    current_user: dict = Depends(get_current_user),
+) -> list[dict]:
+    """List who this trip is shared with (owner only)."""
+    try:
+        return await _shares.list_for_itinerary(current_user, itinerary_id)
+    except TripShareError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+
+@router.delete(
+    "/api/itineraries/{itinerary_id}/shares/{user_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def revoke_itinerary_share(
+    itinerary_id: str,
+    user_id: str,
+    current_user: dict = Depends(get_current_user),
+) -> None:
+    """Revoke a friend's access to this trip (owner only)."""
+    try:
+        await _shares.revoke(current_user, itinerary_id, user_id)
+    except TripShareError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
 
 @router.patch(
