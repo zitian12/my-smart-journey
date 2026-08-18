@@ -178,6 +178,8 @@ export type ItineraryResultState = {
   places: PlaceCoords[];
   readOnly?: boolean;
   sharedByName?: string;
+  savedItineraryId?: string;
+  savedTripName?: string;
 };
 
 export type TripStatus = "upcoming" | "completed";

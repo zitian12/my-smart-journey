@@ -4,7 +4,7 @@ import { DestinationImage } from "../components/DestinationImage";
 import { MalaysiaMap, type MapMarker } from "../components/MalaysiaMap";
 import { useAuth } from "../context/AuthContext";
 import { fetchDestinations } from "../services/destinationApi";
-import { recomputeItinerary, saveItinerary } from "../services/itineraryApi";
+import { recomputeItinerary, saveItinerary, updateItinerary } from "../services/itineraryApi";
 import type { Destination } from "../types/destination";
 import type {
   ItineraryGenerateResponse,
@@ -424,9 +424,12 @@ export function ItineraryResultPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [namingOpen, setNamingOpen] = useState(false);
+  const [saveChooserOpen, setSaveChooserOpen] = useState(false);
   const [tripName, setTripName] = useState("");
   const readOnly = Boolean(initial?.readOnly);
   const sharedByName = initial?.sharedByName;
+  const savedItineraryId = initial?.savedItineraryId;
+  const savedTripName = initial?.savedTripName;
 
   const sustainability = useMemo(
     () => (itinerary ? resolveSustainability(itinerary) : null),
@@ -587,6 +590,8 @@ export function ItineraryResultPage() {
         places: nextPlaces,
         readOnly,
         sharedByName,
+        savedItineraryId,
+        savedTripName,
       };
       setItinerary(updated);
       setPlaces(nextPlaces);
@@ -656,8 +661,59 @@ export function ItineraryResultPage() {
       setSaveError("Please sign in from the sidebar to save this trip.");
       return;
     }
+    if (savedItineraryId) {
+      setNamingOpen(false);
+      setSaveChooserOpen(true);
+      return;
+    }
+    setTripName(defaultTripName);
+    setSaveChooserOpen(false);
+    setNamingOpen(true);
+  };
+
+  const savePayload = () => {
+    if (!itinerary) return null;
+    return {
+      itinerary: {
+        ...itinerary,
+        nights: itinerary.nights ?? Math.max(0, itinerary.days - 1),
+      },
+      places,
+    };
+  };
+
+  const onSaveAsNew = () => {
+    setSaveChooserOpen(false);
+    setSaveError(null);
     setTripName(defaultTripName);
     setNamingOpen(true);
+  };
+
+  const onSaveExisting = async () => {
+    if (!itinerary || saveBusy || !savedItineraryId) return;
+    const token = getAccessToken();
+    if (!token) {
+      setSaveError("Please sign in from the sidebar to save this trip.");
+      setSaveChooserOpen(false);
+      return;
+    }
+    const payload = savePayload();
+    if (!payload) return;
+
+    setSaveBusy(true);
+    setSaveError(null);
+    setSaveSuccess(false);
+    try {
+      await updateItinerary(token, savedItineraryId, payload);
+      setSaveChooserOpen(false);
+      setSaveSuccess(true);
+    } catch (err) {
+      setSaveError(
+        err instanceof Error ? err.message : "Failed to update itinerary",
+      );
+    } finally {
+      setSaveBusy(false);
+    }
   };
 
   const onConfirmSave = async () => {
@@ -668,6 +724,8 @@ export function ItineraryResultPage() {
       setNamingOpen(false);
       return;
     }
+    const payload = savePayload();
+    if (!payload) return;
 
     setSaveBusy(true);
     setSaveError(null);
@@ -675,11 +733,7 @@ export function ItineraryResultPage() {
     try {
       await saveItinerary(token, {
         name: tripName.trim() || defaultTripName,
-        itinerary: {
-          ...itinerary,
-          nights: itinerary.nights ?? Math.max(0, itinerary.days - 1),
-        },
-        places,
+        ...payload,
       });
       setNamingOpen(false);
       setSaveSuccess(true);
@@ -754,7 +808,7 @@ export function ItineraryResultPage() {
           {actionError ? (
             <p className="mt-2 text-sm text-red-700 print:hidden">{actionError}</p>
           ) : null}
-          {saveError ? (
+          {saveError && !namingOpen ? (
             <p className="mt-2 text-sm text-red-700 print:hidden">{saveError}</p>
           ) : null}
           {saveSuccess ? (
@@ -819,6 +873,42 @@ export function ItineraryResultPage() {
         </div>
       </header>
 
+      {saveChooserOpen ? (
+        <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-forest/10 print:hidden sm:p-6">
+          <h2 className="text-base font-semibold text-ink">Save this trip</h2>
+          <p className="mt-1 text-sm text-stone">
+            Update the current saved trip
+            {savedTripName ? ` “${savedTripName}”` : ""}, or save a new copy.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void onSaveExisting()}
+              disabled={saveBusy}
+              className="rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-600 disabled:opacity-60"
+            >
+              {saveBusy ? "Saving…" : "Save existing"}
+            </button>
+            <button
+              type="button"
+              onClick={onSaveAsNew}
+              disabled={saveBusy}
+              className="rounded-xl px-4 py-2.5 text-sm font-medium text-forest ring-1 ring-forest/15 transition hover:bg-mist disabled:opacity-60"
+            >
+              Save as new
+            </button>
+            <button
+              type="button"
+              onClick={() => setSaveChooserOpen(false)}
+              disabled={saveBusy}
+              className="rounded-xl px-4 py-2.5 text-sm font-medium text-stone ring-1 ring-forest/10 transition hover:bg-mist"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {namingOpen ? (
         <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-forest/10 print:hidden sm:p-6">
           <h2 className="text-base font-semibold text-ink">Save this trip</h2>
@@ -837,6 +927,9 @@ export function ItineraryResultPage() {
               placeholder={defaultTripName}
             />
           </label>
+          {saveError ? (
+            <p className="mt-2 text-sm text-red-700">{saveError}</p>
+          ) : null}
           <div className="mt-4 flex flex-wrap gap-2">
             <button
               type="button"

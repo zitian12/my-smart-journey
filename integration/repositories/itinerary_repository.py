@@ -151,6 +151,33 @@ class ItineraryRepository:
 
         return await self.get_by_id(itinerary_id)
 
+    async def replace_snapshot(
+        self,
+        itinerary_id: str,
+        user_id: str,
+        fields: dict,
+    ) -> dict | None:
+        """Replace trip content for an owned itinerary. Name/favourite stay unchanged."""
+        try:
+            object_id = ObjectId(itinerary_id)
+        except InvalidId:
+            return None
+
+        payload = {**fields, "updated_at": datetime.now(timezone.utc)}
+        result = await self._collection.update_one(
+            {"_id": object_id, "user_id": user_id},
+            {"$set": payload},
+        )
+        if result.matched_count == 0:
+            return None
+
+        logger.info(
+            "Replaced itinerary snapshot — id=%s user_id=%s",
+            itinerary_id,
+            user_id,
+        )
+        return await self.get_by_id(itinerary_id)
+
     @staticmethod
     def _serialize(document: dict | None) -> dict | None:
         if document is None:

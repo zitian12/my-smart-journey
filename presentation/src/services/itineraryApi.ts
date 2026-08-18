@@ -98,6 +98,21 @@ export async function saveItinerary(
   return response.json();
 }
 
+export async function updateItinerary(
+  token: string,
+  itineraryId: string,
+  payload: ItinerarySaveRequest,
+): Promise<SavedItineraryDetail> {
+  const response = await fetch(`${API_URL}/api/itineraries/${itineraryId}`, {
+    method: "PUT",
+    headers: authHeaders(token),
+    body: JSON.stringify(payload),
+  });
+
+  await ensureOk(response, "Failed to update trip");
+  return response.json();
+}
+
 export async function listItineraries(
   token: string,
 ): Promise<SavedItinerarySummary[]> {
@@ -163,5 +178,21 @@ export async function renameItinerary(
   });
 
   await ensureOk(response, "Failed to rename trip");
+  return response.json();
+}
+
+export async function duplicateItinerary(
+  token: string,
+  itineraryId: string,
+): Promise<SavedItinerarySummary> {
+  const response = await fetch(
+    `${API_URL}/api/itineraries/${itineraryId}/duplicate`,
+    {
+      method: "POST",
+      headers: authHeaders(token),
+    },
+  );
+
+  await ensureOk(response, "Failed to duplicate trip");
   return response.json();
 }
