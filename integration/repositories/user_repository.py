@@ -13,6 +13,8 @@ from database.models import User
 
 logger = logging.getLogger(__name__)
 
+_METADATA_PROJECTION = {"avatar_bytes": 0}
+
 
 class UserRepository:
     """Handles CRUD operations for users in MongoDB."""
@@ -64,7 +66,10 @@ class UserRepository:
         if not normalized:
             return None
 
-        document = await self._collection.find_one({"email": normalized})
+        document = await self._collection.find_one(
+            {"email": normalized},
+            _METADATA_PROJECTION,
+        )
         if document is None:
             document = await self._collection.find_one(
                 {
@@ -72,7 +77,8 @@ class UserRepository:
                         "$regex": f"^{re.escape(normalized)}$",
                         "$options": "i",
                     }
-                }
+                },
+                _METADATA_PROJECTION,
             )
         return self._serialize(document)
 
@@ -102,7 +108,9 @@ class UserRepository:
             except InvalidId:
                 pass
 
-        cursor = self._collection.find(filters).limit(max(1, min(limit, 50)))
+        cursor = self._collection.find(filters, _METADATA_PROJECTION).limit(
+            max(1, min(limit, 50))
+        )
         documents = await cursor.to_list(length=max(1, min(limit, 50)))
         users: list[dict] = []
         for document in documents:
@@ -122,7 +130,10 @@ class UserRepository:
         if not object_ids:
             return []
 
-        cursor = self._collection.find({"_id": {"$in": object_ids}})
+        cursor = self._collection.find(
+            {"_id": {"$in": object_ids}},
+            _METADATA_PROJECTION,
+        )
         documents = await cursor.to_list(length=len(object_ids))
         users: list[dict] = []
         for document in documents:
@@ -133,7 +144,10 @@ class UserRepository:
 
     async def get_user_by_google_id(self, google_id: str) -> dict | None:
         """Return a user document by Google id, or None if not found."""
-        document = await self._collection.find_one({"google_id": google_id})
+        document = await self._collection.find_one(
+            {"google_id": google_id},
+            _METADATA_PROJECTION,
+        )
         return self._serialize(document)
 
     async def get_user_by_id(self, user_id: str) -> dict | None:
@@ -143,8 +157,30 @@ class UserRepository:
         except InvalidId:
             return None
 
-        document = await self._collection.find_one({"_id": object_id})
+        document = await self._collection.find_one(
+            {"_id": object_id},
+            _METADATA_PROJECTION,
+        )
         return self._serialize(document)
+
+    async def get_avatar(self, user_id: str) -> tuple[bytes, str] | None:
+        """Return custom avatar bytes and content type, or None."""
+        try:
+            object_id = ObjectId(user_id)
+        except InvalidId:
+            return None
+
+        document = await self._collection.find_one(
+            {"_id": object_id},
+            {"avatar_bytes": 1, "avatar_content_type": 1},
+        )
+        if document is None:
+            return None
+        raw = document.get("avatar_bytes")
+        if not raw:
+            return None
+        content_type = document.get("avatar_content_type") or "application/octet-stream"
+        return bytes(raw), content_type
 
     async def update_last_login(self, user_id: str, email: str) -> None:
         """Update the last_login timestamp for a user."""
@@ -201,12 +237,20 @@ class UserRepository:
     def _serialize(document: dict | None) -> dict | None:
         if document is None:
             return None
+        user_id = str(document["_id"])
+        stored_picture = document.get("profile_picture") or ""
+        if document.get("avatar_content_type"):
+            picture = f"/users/{user_id}/avatar"
+        elif "/uploads/avatars/" in stored_picture:
+            picture = ""
+        else:
+            picture = stored_picture
         return {
-            "id": str(document["_id"]),
+            "id": user_id,
             "google_id": document.get("google_id"),
             "email": document["email"],
             "full_name": document.get("full_name") or "",
-            "profile_picture": document.get("profile_picture") or "",
+            "profile_picture": picture,
             "nickname": document.get("nickname") or "",
             "bio": document.get("bio") or "",
             "phone": document.get("phone") or "",

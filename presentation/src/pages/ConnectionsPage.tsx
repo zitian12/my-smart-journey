@@ -8,6 +8,7 @@ import {
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { DailyViewer } from "../components/DailyViewer";
+import { UserAvatar } from "../components/UserAvatar";
 import { useAuth } from "../context/AuthContext";
 import { usePendingCounts } from "../context/PendingCountsContext";
 import {
@@ -39,8 +40,10 @@ import type {
   UserSearchResult,
 } from "../types/connection";
 import type { DailyFeed, DailyGroup, DailyItem } from "../types/daily";
+import { dailyKind } from "../types/daily";
 import type { SavedItinerarySummary } from "../types/itinerary";
 import { ITINERARY_RESULT_STORAGE_KEY } from "../types/itinerary";
+import { mediaUrl } from "../utils/mediaUrl";
 
 const DAILY_SEEN_KEY = "daily_seen_user_ids";
 const EMPTY_DAILY_USER = {
@@ -109,22 +112,67 @@ function Avatar({
   size?: "md" | "lg";
 }) {
   const box = size === "lg" ? "h-16 w-16 text-lg" : "h-12 w-12 text-sm";
-  if (picture) {
-    return (
-      <img
-        src={picture}
-        alt={name}
-        className={`${box} rounded-full object-cover ring-2 ring-leaf/20`}
-        referrerPolicy="no-referrer"
-      />
-    );
-  }
+  return <UserAvatar picture={picture} name={name} className={box} />;
+}
+
+function ArchiveThumb({
+  item,
+  onOpen,
+}: {
+  item: DailyItem;
+  onOpen: () => void;
+}) {
+  const [broken, setBroken] = useState(false);
+  const kind = dailyKind(item);
+  const photoSrc = mediaUrl(item.image_url);
+  const tripSrc = mediaUrl(item.trip?.image);
+  const expired = isDailyExpired(item);
+  const label =
+    kind === "trip"
+      ? item.trip?.name || item.caption || "Trip"
+      : item.caption || "Daily";
+
   return (
-    <div
-      className={`flex ${box} items-center justify-center rounded-full bg-leaf/15 font-semibold text-forest`}
+    <button
+      type="button"
+      onClick={onOpen}
+      className="group relative aspect-[3/4] w-full overflow-hidden rounded-xl bg-mist ring-1 ring-forest/5 transition hover:ring-leaf/40"
     >
-      {name.charAt(0).toUpperCase() || "?"}
-    </div>
+      {kind === "photo" && photoSrc && !broken ? (
+        <img
+          src={photoSrc}
+          alt={label}
+          className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
+          onError={() => setBroken(true)}
+        />
+      ) : kind === "trip" && tripSrc && !broken ? (
+        <img
+          src={tripSrc}
+          alt={label}
+          className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
+          onError={() => setBroken(true)}
+        />
+      ) : (
+        <span
+          className={[
+            "flex h-full items-start p-2 text-left text-xs font-medium",
+            kind === "text"
+              ? "bg-gradient-to-br from-forest to-leaf text-white"
+              : "text-forest",
+          ].join(" ")}
+        >
+          {label}
+        </span>
+      )}
+      <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-2 pb-2 pt-6 text-left">
+        <span className="block truncate text-[11px] font-medium text-white">
+          {formatDailyWhen(item.created_at) || "Daily"}
+        </span>
+        <span className="mt-0.5 block text-[10px] text-white/80">
+          {expired ? "Expired" : "Live"}
+        </span>
+      </span>
+    </button>
   );
 }
 
@@ -196,6 +244,12 @@ export function ConnectionsPage() {
   const [draftFile, setDraftFile] = useState<File | null>(null);
   const [draftPreview, setDraftPreview] = useState<string | null>(null);
   const [draftCaption, setDraftCaption] = useState("");
+  const [composerMode, setComposerMode] = useState<
+    null | "picker" | "photo" | "text" | "trip"
+  >(null);
+  const [draftTrip, setDraftTrip] = useState<SavedItinerarySummary | null>(null);
+  const [composerTrips, setComposerTrips] = useState<SavedItinerarySummary[]>([]);
+  const [composerTripsLoading, setComposerTripsLoading] = useState(false);
   const [posting, setPosting] = useState(false);
   const [friendsOpen, setFriendsOpen] = useState(false);
   const [historyItems, setHistoryItems] = useState<DailyItem[]>([]);
@@ -296,13 +350,13 @@ export function ConnectionsPage() {
   }, [friends, loadPanel, selectedId]);
 
   useEffect(() => {
-    if (!draftFile) return;
+    if (!composerMode) return;
     const previous = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = previous;
     };
-  }, [draftFile]);
+  }, [composerMode]);
 
   useEffect(() => {
     const token = getAccessToken();
@@ -477,12 +531,43 @@ export function ConnectionsPage() {
   };
 
   const closeComposer = () => {
+    setComposerMode(null);
     setDraftFile(null);
     setDraftCaption("");
+    setDraftTrip(null);
+    setComposerTrips([]);
     setDraftPreview((current) => {
       if (current) URL.revokeObjectURL(current);
       return null;
     });
+  };
+
+  const openComposer = () => {
+    setError(null);
+    setComposerMode("picker");
+  };
+
+  const openTextComposer = () => {
+    setDraftCaption("");
+    setComposerMode("text");
+  };
+
+  const openTripComposer = async () => {
+    const token = getAccessToken();
+    if (!token) return;
+    setComposerMode("trip");
+    setDraftTrip(null);
+    setDraftCaption("");
+    setComposerTripsLoading(true);
+    try {
+      const trips = await listItineraries(token);
+      setComposerTrips(trips);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load trips");
+      setComposerTrips([]);
+    } finally {
+      setComposerTripsLoading(false);
+    }
   };
 
   const openViewer = (index: number) => {
@@ -516,15 +601,24 @@ export function ConnectionsPage() {
     });
     setDraftFile(file);
     setDraftCaption("");
+    setComposerMode("photo");
   };
 
   const onPostDaily = async () => {
     const token = getAccessToken();
-    if (!token || !draftFile) return;
+    if (!token || !composerMode || composerMode === "picker") return;
+    if (composerMode === "photo" && !draftFile) return;
+    if (composerMode === "text" && !draftCaption.trim()) return;
+    if (composerMode === "trip" && !draftTrip) return;
     setPosting(true);
     setError(null);
     try {
-      await createDaily(token, draftFile, draftCaption.trim());
+      await createDaily(token, {
+        kind: composerMode,
+        caption: draftCaption.trim(),
+        file: composerMode === "photo" ? draftFile : null,
+        itineraryId: composerMode === "trip" ? draftTrip?.id : null,
+      });
       closeComposer();
       setMessage("Your daily is on your avatar for 24 hours.");
       const [dailyRows, historyRows] = await Promise.all([
@@ -557,7 +651,24 @@ export function ConnectionsPage() {
       openViewer(0);
       return;
     }
-    fileInputRef.current?.click();
+    openComposer();
+  };
+
+  const openOwnTripFromDaily = async (itineraryId: string) => {
+    const token = getAccessToken();
+    if (!token) return;
+    try {
+      const detail = await getItinerary(token, itineraryId);
+      const state = {
+        itinerary: detail.itinerary,
+        places: detail.places,
+        readOnly: Boolean(detail.is_read_only),
+      };
+      sessionStorage.setItem(ITINERARY_RESULT_STORAGE_KEY, JSON.stringify(state));
+      navigate("/dashboard/planning/result", { state });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to open trip");
+    }
   };
 
   const onFriendAvatarClick = (userId: string, fallback?: ConnectionItem) => {
@@ -601,7 +712,8 @@ export function ConnectionsPage() {
         </h1>
         <p className="mt-2 max-w-2xl text-sm text-stone">
           Search for people already on My Smart Journey, then add them. Post a
-          photo daily to your avatar — friends can tap it for 24 hours.
+          daily to your avatar — a photo, a caption, or a trip. Friends can tap
+          it for 24 hours.
         </p>
       </header>
 
@@ -637,7 +749,7 @@ export function ConnectionsPage() {
               </button>
               <button
                 type="button"
-                onClick={() => fileInputRef.current?.click()}
+                onClick={openComposer}
                 aria-label="Post a daily"
                 className="absolute -bottom-0.5 -right-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-amber-500 text-xs font-bold leading-none text-white ring-2 ring-white"
               >
@@ -670,7 +782,8 @@ export function ConnectionsPage() {
         </div>
         {dailyFeed.friends.length === 0 && dailyFeed.me.items.length === 0 ? (
           <p className="mt-3 text-xs text-stone">
-            Tap + to share a photo. It only stays on your avatar for 24 hours.
+            Tap + to share a photo, a caption, or a trip. It only stays on your
+            avatar for 24 hours.
           </p>
         ) : null}
       </section>
@@ -695,32 +808,14 @@ export function ConnectionsPage() {
           </p>
         ) : (
           <ul className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-4">
-            {historyItems.map((item, index) => {
-              const expired = isDailyExpired(item);
-              return (
+            {historyItems.map((item, index) => (
                 <li key={item.id}>
-                  <button
-                    type="button"
-                    onClick={() => setArchiveViewerIndex(index)}
-                    className="group relative aspect-[3/4] w-full overflow-hidden rounded-xl bg-mist ring-1 ring-forest/5 transition hover:ring-leaf/40"
-                  >
-                    <img
-                      src={item.image_url}
-                      alt={item.caption || "Daily"}
-                      className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
-                    />
-                    <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-2 pb-2 pt-6 text-left">
-                      <span className="block truncate text-[11px] font-medium text-white">
-                        {formatDailyWhen(item.created_at) || "Daily"}
-                      </span>
-                      <span className="mt-0.5 block text-[10px] text-white/80">
-                        {expired ? "Expired" : "Live"}
-                      </span>
-                    </span>
-                  </button>
+                  <ArchiveThumb
+                    item={item}
+                    onOpen={() => setArchiveViewerIndex(index)}
+                  />
                 </li>
-              );
-            })}
+              ))}
           </ul>
         )}
       </section>
@@ -1185,7 +1280,7 @@ export function ConnectionsPage() {
         </>
       )}
 
-      {draftFile && draftPreview
+      {composerMode
         ? createPortal(
             <div
               className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4"
@@ -1196,30 +1291,124 @@ export function ConnectionsPage() {
                 onClick={(event) => event.stopPropagation()}
               >
                 <h2 className="font-display text-xl font-semibold text-forest">
-                  Share a daily
+                  {composerMode === "picker"
+                    ? "Share a daily"
+                    : composerMode === "photo"
+                      ? "Photo daily"
+                      : composerMode === "text"
+                        ? "Text daily"
+                        : "Trip daily"}
                 </h2>
                 <p className="mt-1 text-sm text-stone">
                   Friends will see this on your avatar for 24 hours.
                 </p>
-                <img
-                  src={draftPreview}
-                  alt="Daily preview"
-                  className="mt-4 max-h-72 w-full rounded-xl object-cover"
-                />
-                <label className="mt-4 block text-sm font-medium text-forest">
-                  Caption
-                  <input
-                    type="text"
-                    maxLength={140}
-                    value={draftCaption}
-                    onChange={(event) => setDraftCaption(event.target.value)}
-                    placeholder="What are you up to?"
-                    className="mt-1.5 w-full rounded-xl border border-forest/10 bg-mist/40 px-3 py-2.5 text-sm text-ink outline-none ring-forest/20 focus:ring-2"
+
+                {composerMode === "picker" ? (
+                  <div className="mt-4 grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="rounded-xl bg-mist/70 px-3 py-4 text-sm font-semibold text-forest ring-1 ring-forest/10 transition hover:bg-mist"
+                    >
+                      Photo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={openTextComposer}
+                      className="rounded-xl bg-mist/70 px-3 py-4 text-sm font-semibold text-forest ring-1 ring-forest/10 transition hover:bg-mist"
+                    >
+                      Text
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void openTripComposer()}
+                      className="rounded-xl bg-mist/70 px-3 py-4 text-sm font-semibold text-forest ring-1 ring-forest/10 transition hover:bg-mist"
+                    >
+                      Trip
+                    </button>
+                  </div>
+                ) : null}
+
+                {composerMode === "photo" && draftPreview ? (
+                  <img
+                    src={draftPreview}
+                    alt="Daily preview"
+                    className="mt-4 max-h-72 w-full rounded-xl object-cover"
                   />
-                </label>
-                <p className="mt-1 text-right text-xs text-stone">
-                  {draftCaption.length}/140
-                </p>
+                ) : null}
+
+                {composerMode === "text" ? (
+                  <div className="mt-4 flex min-h-40 items-center justify-center rounded-xl bg-gradient-to-br from-forest to-leaf px-4 py-8 text-center text-lg font-semibold text-white">
+                    {draftCaption.trim() || "Write something…"}
+                  </div>
+                ) : null}
+
+                {composerMode === "trip" ? (
+                  <div className="mt-4 max-h-64 space-y-2 overflow-y-auto">
+                    {composerTripsLoading ? (
+                      <p className="text-sm text-stone">Loading trips…</p>
+                    ) : composerTrips.length === 0 ? (
+                      <p className="rounded-xl bg-mist/50 px-3 py-3 text-sm text-stone">
+                        Save a trip first, then share it here.
+                      </p>
+                    ) : (
+                      composerTrips.map((trip) => {
+                        const selected = draftTrip?.id === trip.id;
+                        return (
+                          <button
+                            key={trip.id}
+                            type="button"
+                            onClick={() => setDraftTrip(trip)}
+                            className={[
+                              "flex w-full items-center gap-3 rounded-xl p-2 text-left ring-1 transition",
+                              selected
+                                ? "bg-leaf/10 ring-leaf/40"
+                                : "bg-mist/40 ring-forest/10 hover:ring-leaf/30",
+                            ].join(" ")}
+                          >
+                            <img
+                              src={trip.image}
+                              alt=""
+                              className="h-12 w-12 shrink-0 rounded-lg object-cover"
+                            />
+                            <span className="min-w-0">
+                              <span className="block truncate text-sm font-semibold text-forest">
+                                {trip.name}
+                              </span>
+                              <span className="block truncate text-xs text-stone">
+                                {trip.location || trip.date}
+                              </span>
+                            </span>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                ) : null}
+
+                {composerMode !== "picker" ? (
+                  <>
+                    <label className="mt-4 block text-sm font-medium text-forest">
+                      Caption
+                      <input
+                        type="text"
+                        maxLength={140}
+                        value={draftCaption}
+                        onChange={(event) => setDraftCaption(event.target.value)}
+                        placeholder={
+                          composerMode === "text"
+                            ? "What’s on your mind?"
+                            : "What are you up to?"
+                        }
+                        className="mt-1.5 w-full rounded-xl border border-forest/10 bg-mist/40 px-3 py-2.5 text-sm text-ink outline-none ring-forest/20 focus:ring-2"
+                      />
+                    </label>
+                    <p className="mt-1 text-right text-xs text-stone">
+                      {draftCaption.length}/140
+                    </p>
+                  </>
+                ) : null}
+
                 <div className="mt-4 flex justify-end gap-2">
                   <button
                     type="button"
@@ -1229,14 +1418,21 @@ export function ConnectionsPage() {
                   >
                     Cancel
                   </button>
-                  <button
-                    type="button"
-                    disabled={posting}
-                    onClick={() => void onPostDaily()}
-                    className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-600 disabled:opacity-60"
-                  >
-                    {posting ? "Posting…" : "Post"}
-                  </button>
+                  {composerMode !== "picker" ? (
+                    <button
+                      type="button"
+                      disabled={
+                        posting ||
+                        (composerMode === "photo" && !draftFile) ||
+                        (composerMode === "text" && !draftCaption.trim()) ||
+                        (composerMode === "trip" && !draftTrip)
+                      }
+                      onClick={() => void onPostDaily()}
+                      className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-600 disabled:opacity-60"
+                    >
+                      {posting ? "Posting…" : "Post"}
+                    </button>
+                  ) : null}
                 </div>
               </div>
             </div>,
@@ -1251,6 +1447,7 @@ export function ConnectionsPage() {
           currentUserId={user?.id || dailyFeed.me.user.id}
           onClose={() => setViewerIndex(null)}
           onDelete={onDeleteDaily}
+          onOpenTrip={openOwnTripFromDaily}
         />
       ) : null}
 
@@ -1262,6 +1459,7 @@ export function ConnectionsPage() {
           currentUserId={user?.id || dailyFeed.me.user.id}
           onClose={() => setArchiveViewerIndex(null)}
           onDelete={onDeleteDaily}
+          onOpenTrip={openOwnTripFromDaily}
         />
       ) : null}
     </div>

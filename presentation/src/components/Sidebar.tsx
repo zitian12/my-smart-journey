@@ -3,6 +3,7 @@ import { GoogleLogin, type CredentialResponse } from "@react-oauth/google";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { usePendingCounts } from "../context/PendingCountsContext";
+import { UserAvatar } from "./UserAvatar";
 
 type MenuItem = { id: string; label: string; to: string };
 
@@ -115,18 +116,11 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
               onClick={onClose}
               className="flex items-center gap-3 rounded-lg p-1 no-underline transition-colors hover:bg-mist"
             >
-              {user.profile_picture ? (
-                <img
-                  src={user.profile_picture}
-                  alt={user.name}
-                  className="h-10 w-10 rounded-full object-cover ring-2 ring-leaf/20"
-                  referrerPolicy="no-referrer"
-                />
-              ) : (
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-leaf/15 text-sm font-semibold text-forest">
-                  {user.name.charAt(0).toUpperCase()}
-                </div>
-              )}
+              <UserAvatar
+                picture={user.profile_picture}
+                name={user.name}
+                className="h-10 w-10 text-sm"
+              />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold text-forest">{user.name}</p>
                 <p className="truncate text-xs text-stone">{user.email}</p>

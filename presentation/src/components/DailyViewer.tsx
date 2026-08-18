@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import type { DailyGroup } from "../types/daily";
+import { UserAvatar } from "./UserAvatar";
+import type { DailyGroup, DailyItem } from "../types/daily";
+import { dailyKind } from "../types/daily";
+import { mediaUrl } from "../utils/mediaUrl";
 
 const SLIDE_MS = 5000;
 
@@ -41,6 +44,99 @@ function TrashIcon() {
   );
 }
 
+function DailySlideImage({
+  url,
+  caption,
+}: {
+  url: string;
+  caption: string;
+}) {
+  const src = mediaUrl(url);
+  const [broken, setBroken] = useState(false);
+
+  useEffect(() => {
+    setBroken(false);
+  }, [src]);
+
+  if (!src || broken) {
+    return (
+      <div className="relative z-[1] flex h-full w-full items-center justify-center bg-zinc-900 px-6 text-center text-sm text-white/80">
+        {caption || "Photo unavailable"}
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <img
+        src={src}
+        alt=""
+        aria-hidden
+        className="absolute inset-0 h-full w-full scale-110 object-cover blur-2xl brightness-75"
+        onError={() => setBroken(true)}
+      />
+      <img
+        src={src}
+        alt={caption || "Daily"}
+        className="relative z-[1] h-full w-full object-contain"
+        onError={() => setBroken(true)}
+      />
+    </>
+  );
+}
+
+function DailySlide({
+  item,
+}: {
+  item: DailyItem;
+}) {
+  const kind = dailyKind(item);
+
+  if (kind === "text") {
+    return (
+      <div className="relative z-[1] flex h-full w-full items-center justify-center bg-gradient-to-br from-forest to-leaf px-8 text-center">
+        <p className="text-2xl font-semibold leading-snug text-white drop-shadow">
+          {item.caption || "Daily"}
+        </p>
+      </div>
+    );
+  }
+
+  if (kind === "trip") {
+    const cover = mediaUrl(item.trip?.image);
+    return (
+      <div className="relative z-[1] h-full w-full bg-zinc-900">
+        {cover ? (
+          <img
+            src={cover}
+            alt={item.trip?.name || "Trip"}
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+        ) : null}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/25 to-black/20" />
+        <div className="absolute inset-x-0 bottom-24 px-5 text-white">
+          <p className="text-xs font-medium uppercase tracking-wider text-white/80">
+            Trip
+          </p>
+          <p className="mt-1 text-2xl font-semibold drop-shadow">
+            {item.trip?.name || "Trip"}
+          </p>
+          <p className="mt-1 text-sm text-white/85">
+            {[item.trip?.location, item.trip?.date, item.trip?.days ? `${item.trip.days} days` : ""]
+              .filter(Boolean)
+              .join(" · ")}
+          </p>
+          {item.caption ? (
+            <p className="mt-3 text-sm text-white/95">{item.caption}</p>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  return <DailySlideImage url={item.image_url} caption={item.caption} />;
+}
+
 export function DailyViewer({
   groups,
   startGroupIndex,
@@ -48,6 +144,7 @@ export function DailyViewer({
   currentUserId,
   onClose,
   onDelete,
+  onOpenTrip,
 }: {
   groups: DailyGroup[];
   startGroupIndex: number;
@@ -55,6 +152,7 @@ export function DailyViewer({
   currentUserId: string;
   onClose: () => void;
   onDelete?: (dailyId: string) => Promise<void>;
+  onOpenTrip?: (itineraryId: string) => void;
 }) {
   const [feed, setFeed] = useState(() =>
     groups.filter((group) => group.items.length > 0),
@@ -182,17 +280,7 @@ export function DailyViewer({
         className="relative h-svh w-full max-w-[420px] overflow-hidden bg-black text-white sm:h-[min(100svh,840px)] sm:rounded-2xl sm:shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
-        <img
-          src={item.image_url}
-          alt=""
-          aria-hidden
-          className="absolute inset-0 h-full w-full scale-110 object-cover blur-2xl brightness-75"
-        />
-        <img
-          src={item.image_url}
-          alt={item.caption || "Daily"}
-          className="relative z-[1] h-full w-full object-contain"
-        />
+        <DailySlide item={item} />
 
         <div className="absolute inset-x-0 top-0 z-20 bg-gradient-to-b from-black/70 to-transparent px-3 pb-10 pt-[max(0.75rem,env(safe-area-inset-top))]">
           <div className="flex gap-1">
@@ -218,18 +306,13 @@ export function DailyViewer({
           </div>
           <div className="mt-3 flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-2">
-              {group.user.profile_picture ? (
-                <img
-                  src={group.user.profile_picture}
-                  alt=""
-                  className="h-8 w-8 rounded-full object-cover ring-1 ring-white/40"
-                  referrerPolicy="no-referrer"
-                />
-              ) : (
-                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20 text-xs font-semibold ring-1 ring-white/40">
-                  {displayName(group).charAt(0).toUpperCase() || "?"}
-                </div>
-              )}
+              <UserAvatar
+                picture={group.user.profile_picture}
+                name={displayName(group)}
+                className="h-8 w-8 text-xs"
+                imgClassName="ring-1 ring-white/40"
+                fallbackClassName="bg-white/20 font-semibold text-white ring-1 ring-white/40"
+              />
               <p className="truncate text-sm font-semibold drop-shadow">
                 {displayName(group)}
               </p>
@@ -277,7 +360,19 @@ export function DailyViewer({
           onPointerLeave={() => setPaused(false)}
         />
 
-        {item.caption ? (
+        {isOwn && dailyKind(item) === "trip" && item.trip?.id && onOpenTrip ? (
+          <div className="absolute inset-x-0 bottom-0 z-20 flex justify-center px-4 pb-[max(4.5rem,calc(env(safe-area-inset-bottom)+3.25rem))]">
+            <button
+              type="button"
+              onClick={() => onOpenTrip(item.trip!.id)}
+              className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-forest shadow-lg"
+            >
+              Open trip
+            </button>
+          </div>
+        ) : null}
+
+        {item.caption && dailyKind(item) === "photo" ? (
           <p className="pointer-events-none absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/80 to-transparent px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-12 text-sm drop-shadow">
             {item.caption}
           </p>

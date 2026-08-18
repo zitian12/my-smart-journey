@@ -41,12 +41,22 @@ export async function listDailyHistory(token: string): Promise<DailyHistory> {
 
 export async function createDaily(
   token: string,
-  file: File,
-  caption: string,
+  payload: {
+    kind: "photo" | "text" | "trip";
+    caption: string;
+    file?: File | null;
+    itineraryId?: string | null;
+  },
 ): Promise<DailyItem> {
   const formData = new FormData();
-  formData.append("file", file);
-  formData.append("caption", caption);
+  formData.append("kind", payload.kind);
+  formData.append("caption", payload.caption);
+  if (payload.file) {
+    formData.append("file", payload.file);
+  }
+  if (payload.itineraryId) {
+    formData.append("itinerary_id", payload.itineraryId);
+  }
 
   const response = await fetch(`${API_URL}/api/dailies`, {
     method: "POST",

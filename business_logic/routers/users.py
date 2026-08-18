@@ -2,7 +2,7 @@
 
 import logging
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 
 from deps import get_current_user
 from integration.repositories import UserRepository
@@ -52,22 +52,30 @@ async def update_my_profile(
 
 @router.post("/me/avatar", response_model=UserProfileResponse)
 async def upload_my_avatar(
-    request: Request,
     file: UploadFile = File(...),
     current_user: dict = Depends(get_current_user),
 ) -> UserProfileResponse:
     try:
-        public_base_url = str(request.base_url).rstrip("/")
-        return await _profile_service.upload_avatar(
-            current_user,
-            file,
-            public_base_url,
-        )
+        return await _profile_service.upload_avatar(current_user, file)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception:
         logger.exception("Failed to upload avatar")
         raise HTTPException(status_code=500, detail="Failed to upload avatar")
+
+
+@router.get("/{user_id}/avatar")
+async def get_user_avatar(user_id: str) -> Response:
+    """Stream a custom avatar stored in MongoDB."""
+    try:
+        data, content_type = await _profile_service.get_avatar(user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return Response(
+        content=data,
+        media_type=content_type,
+        headers={"Cache-Control": "no-cache"},
+    )
 
 
 @router.delete("/me")

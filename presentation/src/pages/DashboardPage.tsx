@@ -1,4 +1,5 @@
 import { useNavigate } from "react-router-dom";
+import { UserAvatar } from "../components/UserAvatar";
 import { useAuth } from "../context/AuthContext";
 
 const quickActions = [
@@ -62,18 +63,11 @@ export function DashboardPage() {
       {isAuthenticated && user ? (
         <section className="flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-white p-5 ring-1 ring-forest/5">
           <div className="flex min-w-0 items-center gap-4">
-            {user.profile_picture ? (
-              <img
-                src={user.profile_picture}
-                alt={user.name}
-                className="h-14 w-14 rounded-full object-cover ring-2 ring-leaf/20"
-                referrerPolicy="no-referrer"
-              />
-            ) : (
-              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-leaf/15 text-lg font-semibold text-forest">
-                {user.name.charAt(0).toUpperCase()}
-              </div>
-            )}
+            <UserAvatar
+              picture={user.profile_picture}
+              name={user.name}
+              className="h-14 w-14 text-lg"
+            />
             <div className="min-w-0">
               <p className="truncate text-lg font-semibold text-ink">{user.name}</p>
               <p className="truncate text-sm text-stone">{user.email}</p>
