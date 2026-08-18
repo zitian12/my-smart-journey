@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { usePendingCounts } from "../context/PendingCountsContext";
 import {
   deleteItinerary,
+  duplicateItinerary,
   getItinerary,
   listItineraries,
   renameItinerary,
@@ -46,38 +47,6 @@ function IconHeart({ filled }: { filled?: boolean }) {
         strokeLinecap="round"
         strokeLinejoin="round"
         d="M12 21s-6.7-4.4-9-8.2C1.2 8.8 3.6 5 7.5 5c2.1 0 3.4 1.1 4.5 2.2C13.1 6.1 14.4 5 16.5 5c3.9 0 6.3 3.8 4.5 7.8C18.7 16.6 12 21 12 21Z"
-      />
-    </svg>
-  );
-}
-
-function IconEdit() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="m16.5 5.5 2 2M4 20h4l10.5-10.5a1.4 1.4 0 0 0-2-2L4 16v4Z"
-      />
-    </svg>
-  );
-}
-
-function IconTrash() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path strokeLinecap="round" d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m2 0v12a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V7h10Z" />
-    </svg>
-  );
-}
-
-function IconRename() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M4 20h6l10-10-6-6L4 14v6ZM14 6l4 4"
       />
     </svg>
   );
@@ -152,18 +121,6 @@ function IconRouteEnd() {
   );
 }
 
-function IconInvite() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2M11.5 7.5a4 4 0 1 1-8 0 4 4 0 0 1 8 0ZM19 8v6M16 11h6"
-      />
-    </svg>
-  );
-}
-
 function tripDateKey(trip: SavedItinerarySummary): string | null {
   const raw = trip.created_at;
   if (!raw) return null;
@@ -179,6 +136,7 @@ type TripCardProps = {
   onViewEcoScore: (trip: SavedItinerarySummary) => void;
   onToggleFavourite: (trip: SavedItinerarySummary) => void;
   onRename: (trip: SavedItinerarySummary) => void;
+  onDuplicate: (trip: SavedItinerarySummary) => void;
   onDelete: (trip: SavedItinerarySummary) => void;
   onInvite?: (trip: SavedItinerarySummary) => void;
 };
@@ -206,10 +164,36 @@ function TripCard({
   onViewEcoScore,
   onToggleFavourite,
   onRename,
+  onDuplicate,
   onDelete,
   onInvite,
 }: TripCardProps) {
   const statusLabel = trip.status === "upcoming" ? "Upcoming" : "Completed";
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [menuOpen]);
+
+  const runAction = (action: () => void) => {
+    setMenuOpen(false);
+    action();
+  };
 
   return (
     <article className="flex gap-4 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-forest/5 sm:gap-5 sm:p-5">
@@ -252,64 +236,79 @@ function TripCard({
             </button>
           </div>
 
-          <div className="flex items-center gap-1">
-            {readOnly ? null : (
-              <>
-                <button
-                  type="button"
-                  aria-label="Invite friend"
-                  disabled={busy}
-                  onClick={() => onInvite?.(trip)}
-                  className="rounded-lg p-1.5 text-stone transition hover:bg-mist hover:text-forest"
-                >
-                  <IconInvite />
-                </button>
-                <button
-                  type="button"
-                  aria-label="Favourite"
-                  disabled={busy}
-                  onClick={() => onToggleFavourite(trip)}
-                  className={[
-                    "rounded-lg p-1.5 transition hover:bg-mist",
-                    trip.is_favourite
-                      ? "text-red-500 hover:text-red-600"
-                      : "text-stone hover:text-forest",
-                  ].join(" ")}
-                >
-                  <IconHeart filled={trip.is_favourite} />
-                </button>
-                <button
-                  type="button"
-                  aria-label="Rename trip"
-                  disabled={busy}
-                  onClick={() => onRename(trip)}
-                  className="rounded-lg p-1.5 text-stone transition hover:bg-mist hover:text-forest"
-                >
-                  <IconRename />
-                </button>
-              </>
-            )}
-            <button
-              type="button"
-              aria-label="Open trip"
-              disabled={busy}
-              onClick={() => onOpen(trip)}
-              className="rounded-lg p-1.5 text-stone transition hover:bg-mist hover:text-forest"
-            >
-              <IconEdit />
-            </button>
-            {readOnly ? null : (
+          {readOnly ? null : (
+            <div className="flex items-center gap-1">
               <button
                 type="button"
-                aria-label="Delete trip"
+                aria-label={trip.is_favourite ? "Unfavourite" : "Favourite"}
                 disabled={busy}
-                onClick={() => onDelete(trip)}
-                className="rounded-lg p-1.5 text-red-400 transition hover:bg-red-50 hover:text-red-500"
+                onClick={() => onToggleFavourite(trip)}
+                className={[
+                  "rounded-lg p-1.5 transition hover:bg-mist",
+                  trip.is_favourite
+                    ? "text-red-500 hover:text-red-600"
+                    : "text-stone hover:text-forest",
+                ].join(" ")}
               >
-                <IconTrash />
+                <IconHeart filled={trip.is_favourite} />
               </button>
-            )}
-          </div>
+              <div ref={menuRef} className="relative" onClick={(event) => event.stopPropagation()}>
+                <button
+                  type="button"
+                  aria-haspopup="menu"
+                  aria-expanded={menuOpen}
+                  disabled={busy}
+                  onClick={() => setMenuOpen((open) => !open)}
+                  className="rounded-lg px-2.5 py-1 text-sm font-medium text-stone transition hover:bg-mist hover:text-forest disabled:opacity-50"
+                >
+                  Options
+                </button>
+                {menuOpen ? (
+                  <div
+                    role="menu"
+                    className="absolute right-0 z-20 mt-1 min-w-[9.5rem] overflow-hidden rounded-xl bg-white py-1 shadow-lg ring-1 ring-forest/10"
+                  >
+                    <button
+                      type="button"
+                      role="menuitem"
+                      disabled={busy}
+                      onClick={() => runAction(() => onInvite?.(trip))}
+                      className="block w-full px-3 py-2 text-left text-sm text-ink transition hover:bg-mist disabled:opacity-50"
+                    >
+                      Invite
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      disabled={busy}
+                      onClick={() => runAction(() => onRename(trip))}
+                      className="block w-full px-3 py-2 text-left text-sm text-ink transition hover:bg-mist disabled:opacity-50"
+                    >
+                      Rename
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      disabled={busy}
+                      onClick={() => runAction(() => onDuplicate(trip))}
+                      className="block w-full px-3 py-2 text-left text-sm text-ink transition hover:bg-mist disabled:opacity-50"
+                    >
+                      Duplicate
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      disabled={busy}
+                      onClick={() => runAction(() => onDelete(trip))}
+                      className="block w-full px-3 py-2 text-left text-sm text-red-500 transition hover:bg-red-50 disabled:opacity-50"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          )}
         </div>
 
         <button
@@ -479,6 +478,12 @@ export function MyTripsPage() {
         sharedByName: sharedBy
           ? sharedBy.nickname.trim() || sharedBy.full_name || sharedBy.email
           : undefined,
+        ...(detail.is_read_only
+          ? {}
+          : {
+              savedItineraryId: detail.id,
+              savedTripName: detail.name,
+            }),
       };
       sessionStorage.setItem(ITINERARY_RESULT_STORAGE_KEY, JSON.stringify(state));
       navigate("/dashboard/planning/result", { state });
@@ -508,6 +513,25 @@ export function MyTripsPage() {
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update favourite");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const onDuplicate = async (trip: SavedItinerarySummary) => {
+    const token = getAccessToken();
+    if (!token) {
+      setError("Please sign in to duplicate this trip.");
+      return;
+    }
+    setBusyId(trip.id);
+    setError(null);
+    try {
+      const copy = await duplicateItinerary(token, trip.id);
+      setTrips((prev) => [copy, ...prev]);
+      openRename(copy);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to duplicate trip");
     } finally {
       setBusyId(null);
     }
@@ -645,6 +669,17 @@ export function MyTripsPage() {
       setError("Trip name cannot be empty.");
       return;
     }
+    const nameTaken = trips.some(
+      (item) =>
+        item.id !== renamingTrip.id &&
+        item.name.trim().toLowerCase() === nextName.toLowerCase(),
+    );
+    if (nameTaken) {
+      setError(
+        "A trip with this name already exists. Please choose a different name.",
+      );
+      return;
+    }
     const token = getAccessToken();
     if (!token) {
       setError("Please sign in to rename this trip.");
@@ -734,7 +769,7 @@ export function MyTripsPage() {
           </button>
         </div>
 
-        {error ? (
+        {error && !renamingTrip ? (
           <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">
             {error}
           </p>
@@ -869,6 +904,9 @@ export function MyTripsPage() {
                 className="mt-1.5 w-full rounded-xl border border-forest/10 bg-mist/40 px-3 py-2.5 text-sm text-ink outline-none ring-forest/20 focus:ring-2"
               />
             </label>
+            {error ? (
+              <p className="mt-2 text-sm text-red-700">{error}</p>
+            ) : null}
             <div className="mt-4 flex flex-wrap gap-2">
               <button
                 type="button"
@@ -990,6 +1028,7 @@ export function MyTripsPage() {
                 }
                 onToggleFavourite={(item) => void onToggleFavourite(item)}
                 onRename={openRename}
+                onDuplicate={(item) => void onDuplicate(item)}
                 onDelete={(item) => void onDelete(item)}
                 onInvite={(item) => void openInvite(item)}
               />

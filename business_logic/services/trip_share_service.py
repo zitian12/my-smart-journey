@@ -9,12 +9,17 @@ from pymongo.errors import DuplicateKeyError
 from database.models.trip_share import TripShare
 from integration.repositories import (
     ConnectionRepository,
+    DestinationRepository,
     ItineraryRepository,
     TripShareRepository,
     UserRepository,
 )
 from schemas.profile import public_user_from_document
-from services.itinerary_persistence_service import to_detail, to_summary
+from services.itinerary_persistence_service import (
+    attach_cover_images,
+    to_detail,
+    to_summary,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,11 +42,13 @@ class TripShareService:
         itinerary_repository: ItineraryRepository | None = None,
         connection_repository: ConnectionRepository | None = None,
         user_repository: UserRepository | None = None,
+        destination_repository: DestinationRepository | None = None,
     ) -> None:
         self._shares = share_repository or TripShareRepository()
         self._itineraries = itinerary_repository or ItineraryRepository()
         self._connections = connection_repository or ConnectionRepository()
         self._users = user_repository or UserRepository()
+        self._destinations = destination_repository or DestinationRepository()
 
     async def invite(
         self,
@@ -77,7 +84,7 @@ class TripShareService:
                 )
             except DuplicateKeyError as exc:
                 raise TripShareError("This trip is already shared", 409) from exc
-            return self._to_owner_item(created, recipient, itinerary)
+            return await self._owner_item_with_cover(created, recipient, itinerary)
 
         status = existing.get("status")
         if status == "accepted":
@@ -88,7 +95,7 @@ class TripShareService:
         reopened = await self._shares.reopen_as_pending(existing["id"])
         if reopened is None:
             raise TripShareError("Share not found", 404)
-        return self._to_owner_item(reopened, recipient, itinerary)
+        return await self._owner_item_with_cover(reopened, recipient, itinerary)
 
     async def list_for_itinerary(
         self,
@@ -102,7 +109,7 @@ class TripShareService:
         recipient_ids = [row["recipient_id"] for row in rows]
         users = await self._users.get_users_by_ids(recipient_ids)
         by_id = {user["id"]: user for user in users}
-        return [
+        items = [
             self._to_owner_item(
                 row,
                 by_id.get(row["recipient_id"])
@@ -117,6 +124,13 @@ class TripShareService:
             )
             for row in rows
         ]
+        nested = [item["itinerary"] for item in items if item.get("itinerary")]
+        await attach_cover_images(
+            nested,
+            [itinerary],
+            destination_repository=self._destinations,
+        )
+        return items
 
     async def list_shared_with_me(self, current_user: dict) -> list[dict]:
         """Trips the current user has accepted as a viewer."""
@@ -166,6 +180,12 @@ class TripShareService:
             for row in to_friend_rows
             if row["itinerary_id"] in itinerary_by_id
         ]
+        nested = [item["itinerary"] for item in to_friend if item.get("itinerary")]
+        await attach_cover_images(
+            nested,
+            itineraries,
+            destination_repository=self._destinations,
+        )
 
         return {
             "from_friend": await self._hydrate_invite_items(from_friend_rows),
@@ -212,6 +232,11 @@ class TripShareService:
             detail = to_detail(doc)
             detail["is_read_only"] = False
             detail["shared_by"] = None
+            await attach_cover_images(
+                [detail],
+                [doc],
+                destination_repository=self._destinations,
+            )
             return detail
 
         if not await self._shares.has_accepted_share(itinerary_id, user_id):
@@ -221,6 +246,11 @@ class TripShareService:
         detail = to_detail(doc)
         detail["is_read_only"] = True
         detail["shared_by"] = public_user_from_document(owner) if owner else None
+        await attach_cover_images(
+            [detail],
+            [doc],
+            destination_repository=self._destinations,
+        )
         return detail
 
     async def _set_recipient_status(
@@ -273,7 +303,11 @@ class TripShareService:
                 public_user_from_document(owner) if owner else None
             )
             summaries.append(summary)
-        return summaries
+        return await attach_cover_images(
+            summaries,
+            itineraries,
+            destination_repository=self._destinations,
+        )
 
     async def _hydrate_invite_items(self, rows: list[dict]) -> list[dict]:
         itinerary_ids = [row["itinerary_id"] for row in rows]
@@ -308,7 +342,28 @@ class TripShareService:
                     "created_at": row.get("created_at"),
                 }
             )
+        nested = [item["itinerary"] for item in items if item.get("itinerary")]
+        await attach_cover_images(
+            nested,
+            itineraries,
+            destination_repository=self._destinations,
+        )
         return items
+
+    async def _owner_item_with_cover(
+        self,
+        share: dict,
+        recipient: dict,
+        itinerary: dict,
+    ) -> dict:
+        item = self._to_owner_item(share, recipient, itinerary)
+        if item.get("itinerary"):
+            await attach_cover_images(
+                [item["itinerary"]],
+                [itinerary],
+                destination_repository=self._destinations,
+            )
+        return item
 
     @staticmethod
     def _to_owner_item(share: dict, recipient: dict, itinerary: dict) -> dict:

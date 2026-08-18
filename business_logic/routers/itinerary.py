@@ -21,7 +21,10 @@ from schemas.itinerary import (
 )
 from schemas.trip_share import FriendSharesResponse, TripShareCreateRequest, TripShareItem
 from services.itinerary_generation_service import ItineraryGenerationService
-from services.itinerary_persistence_service import ItineraryPersistenceService
+from services.itinerary_persistence_service import (
+    ItineraryNameConflictError,
+    ItineraryPersistenceService,
+)
 from services.itinerary_poi_selection_service import ItineraryPoiSelectionService
 from services.trip_share_service import TripShareError, TripShareService
 
@@ -212,13 +215,19 @@ async def save_itinerary(
     current_user: dict = Depends(get_current_user),
 ) -> dict:
     """Save the current itinerary snapshot for the authenticated user."""
-    return await _persistence.save(
-        user_id=str(current_user["id"]),
-        name=body.name,
-        itinerary=body.itinerary.model_dump(),
-        places=[p.model_dump() for p in body.places],
-        travelers=body.travelers,
-    )
+    try:
+        return await _persistence.save(
+            user_id=str(current_user["id"]),
+            name=body.name,
+            itinerary=body.itinerary.model_dump(),
+            places=[p.model_dump() for p in body.places],
+            travelers=body.travelers,
+        )
+    except ItineraryNameConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
 
 
 @router.get(
@@ -318,6 +327,28 @@ async def get_itinerary(
 
 
 @router.post(
+    "/api/itineraries/{itinerary_id}/duplicate",
+    response_model=SavedItinerarySummary,
+    status_code=status.HTTP_201_CREATED,
+)
+async def duplicate_itinerary(
+    itinerary_id: str,
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    """Clone an owned itinerary into a new saved trip."""
+    duplicated = await _persistence.duplicate_for_user(
+        itinerary_id,
+        str(current_user["id"]),
+    )
+    if duplicated is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Itinerary not found",
+        )
+    return duplicated
+
+
+@router.post(
     "/api/itineraries/{itinerary_id}/shares",
     response_model=TripShareItem,
     status_code=status.HTTP_201_CREATED,
@@ -398,10 +429,41 @@ async def rename_itinerary(
     current_user: dict = Depends(get_current_user),
 ) -> dict:
     """Rename an owned itinerary."""
-    updated = await _persistence.rename(
+    try:
+        updated = await _persistence.rename(
+            itinerary_id,
+            str(current_user["id"]),
+            body.name,
+        )
+    except ItineraryNameConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    if updated is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Itinerary not found",
+        )
+    return updated
+
+
+@router.put(
+    "/api/itineraries/{itinerary_id}",
+    response_model=SavedItineraryDetail,
+)
+async def replace_itinerary(
+    itinerary_id: str,
+    body: ItinerarySaveRequest,
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    """Overwrite an owned itinerary snapshot. Name and favourite are kept."""
+    updated = await _persistence.replace_for_user(
         itinerary_id,
         str(current_user["id"]),
-        body.name,
+        itinerary=body.itinerary.model_dump(),
+        places=[p.model_dump() for p in body.places],
+        travelers=body.travelers,
     )
     if updated is None:
         raise HTTPException(
