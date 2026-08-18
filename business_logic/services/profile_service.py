@@ -2,9 +2,8 @@
 
 import logging
 import re
-import uuid
-from pathlib import Path
 
+from bson.binary import Binary
 from fastapi import UploadFile
 
 from integration.repositories import UserRepository
@@ -12,7 +11,6 @@ from schemas.profile import ProfileUpdateRequest, UserProfileResponse
 
 logger = logging.getLogger(__name__)
 
-UPLOAD_DIR = Path(__file__).resolve().parent.parent / "uploads" / "avatars"
 ALLOWED_CONTENT_TYPES = {
     "image/jpeg": ".jpg",
     "image/png": ".png",
@@ -75,11 +73,9 @@ class ProfileService:
         self,
         user: dict,
         file: UploadFile,
-        public_base_url: str,
     ) -> UserProfileResponse:
         content_type = (file.content_type or "").lower()
-        extension = ALLOWED_CONTENT_TYPES.get(content_type)
-        if extension is None:
+        if content_type not in ALLOWED_CONTENT_TYPES:
             raise ValueError("Avatar must be a JPEG, PNG, or WebP image")
 
         data = await file.read()
@@ -88,21 +84,25 @@ class ProfileService:
         if len(data) > MAX_AVATAR_BYTES:
             raise ValueError("Avatar must be 2 MB or smaller")
 
-        UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-        filename = f"{user['id']}_{uuid.uuid4().hex}{extension}"
-        destination = UPLOAD_DIR / filename
-        destination.write_bytes(data)
-
-        avatar_url = f"{public_base_url.rstrip('/')}/uploads/avatars/{filename}"
         updated = await self._user_repository.update_profile(
             user["id"],
-            {"profile_picture": avatar_url},
+            {
+                "avatar_bytes": Binary(data),
+                "avatar_content_type": content_type,
+            },
         )
         if updated is None:
             raise ValueError("User not found")
 
-        logger.info("Avatar uploaded for user %s -> %s", user["id"], filename)
+        logger.info("Avatar uploaded for user %s", user["id"])
         return self.to_response(updated)
+
+    async def get_avatar(self, user_id: str) -> tuple[bytes, str]:
+        """Return a user's custom avatar bytes."""
+        image = await self._user_repository.get_avatar(user_id)
+        if image is None:
+            raise ValueError("Avatar not found")
+        return image
 
     async def delete_account(self, user: dict) -> None:
         deleted = await self._user_repository.delete_user(user["id"])

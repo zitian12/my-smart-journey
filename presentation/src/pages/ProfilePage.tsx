@@ -11,6 +11,7 @@ import { createPortal } from "react-dom";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { getItinerary, listItineraries } from "../services/itineraryApi";
+import { mediaUrl } from "../utils/mediaUrl";
 import {
   deleteMyAccount,
   fetchMyProfile,
@@ -411,10 +412,11 @@ export function ProfilePage() {
                   <div className="flex flex-col gap-4 rounded-2xl bg-leaf/10 p-4 sm:flex-row sm:items-center">
                     {previewUrl ? (
                       <img
-                        src={previewUrl}
+                        src={mediaUrl(previewUrl)}
                         alt={fullName || user.name}
                         className="h-16 w-16 rounded-2xl object-cover ring-2 ring-white"
                         referrerPolicy="no-referrer"
+                        onError={() => setPreviewUrl("")}
                       />
                     ) : (
                       <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-forest text-xl font-semibold text-white">

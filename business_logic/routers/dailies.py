@@ -24,21 +24,28 @@ def _raise_daily_error(exc: DailyError) -> None:
     raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
 
+def _public_base_url(request: Request) -> str:
+    return str(request.base_url).rstrip("/")
+
+
 @router.post("", response_model=DailyItem, status_code=status.HTTP_201_CREATED)
 async def create_daily(
     request: Request,
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(None),
+    kind: str = Form("photo"),
     caption: str = Form(""),
+    itinerary_id: str = Form(""),
     current_user: dict = Depends(get_current_user),
 ) -> dict:
-    """Post a photo daily that appears on the avatar ring for 24 hours."""
+    """Post a photo, text, or trip daily that appears on the avatar ring for 24 hours."""
     try:
-        public_base_url = str(request.base_url).rstrip("/")
         return await _service.create(
             current_user,
-            file,
-            caption,
-            public_base_url,
+            kind=kind,
+            caption=caption,
+            public_base_url=_public_base_url(request),
+            file=file,
+            itinerary_id=itinerary_id,
         )
     except DailyError as exc:
         _raise_daily_error(exc)
@@ -47,18 +54,31 @@ async def create_daily(
 
 @router.get("", response_model=DailyFeedResponse)
 async def list_dailies(
+    request: Request,
     current_user: dict = Depends(get_current_user),
 ) -> dict:
     """List the current user's and friends' unexpired dailies."""
-    return await _service.list_feed(current_user)
+    return await _service.list_feed(current_user, _public_base_url(request))
 
 
 @router.get("/history", response_model=DailyHistoryResponse)
 async def list_daily_history(
+    request: Request,
     current_user: dict = Depends(get_current_user),
 ) -> dict:
     """List the current user's dailies including expired ones (archive)."""
-    return await _service.list_history(current_user)
+    return await _service.list_history(current_user, _public_base_url(request))
+
+
+@router.get("/{daily_id}/image")
+async def get_daily_image(daily_id: str) -> Response:
+    """Stream a daily photo stored in MongoDB."""
+    try:
+        data, content_type = await _service.get_image(daily_id)
+    except DailyError as exc:
+        _raise_daily_error(exc)
+        raise
+    return Response(content=data, media_type=content_type)
 
 
 @router.delete("/{daily_id}", status_code=status.HTTP_204_NO_CONTENT)

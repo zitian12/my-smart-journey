@@ -2,6 +2,7 @@ import { useRef } from "react";
 import { GoogleLogin, type CredentialResponse } from "@react-oauth/google";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { UserAvatar } from "./UserAvatar";
 
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
   [
@@ -66,18 +67,11 @@ export function Navbar() {
                 Dashboard
               </NavLink>
               <div className="flex items-center gap-2 sm:gap-3">
-                {user.profile_picture ? (
-                  <img
-                    src={user.profile_picture}
-                    alt={user.name}
-                    className="h-8 w-8 rounded-full object-cover ring-2 ring-leaf/20"
-                    referrerPolicy="no-referrer"
-                  />
-                ) : (
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-leaf/15 text-xs font-semibold text-forest">
-                    {user.name.charAt(0).toUpperCase()}
-                  </div>
-                )}
+                <UserAvatar
+                  picture={user.profile_picture}
+                  name={user.name}
+                  className="h-8 w-8 text-xs"
+                />
                 <span className="hidden max-w-[10rem] truncate text-sm font-medium text-forest sm:inline">
                   {user.name}
                 </span>
