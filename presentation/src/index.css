@@ -66,6 +66,10 @@ body {
   animation: daily-progress 5s linear forwards;
 }
 
+.msj-eco-print-only {
+  display: none;
+}
+
 .msj-google-map,
 .leaflet-container {
   font-family: var(--font-sans);
@@ -89,5 +93,26 @@ body {
   .msj-google-map,
   .leaflet-container {
     display: none !important;
+  }
+
+    .msj-eco-print-only {
+    display: block !important;
+  }
+
+  [data-eco-print-hide] {
+    display: none !important;
+  }
+
+  .msj-eco-score-print-root {
+    display: block !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .msj-eco-score-print-root section,
+  .msj-eco-score-print-root article {
+    break-inside: avoid;
+    box-shadow: none !important;
   }
 }
