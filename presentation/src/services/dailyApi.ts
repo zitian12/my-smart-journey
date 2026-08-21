@@ -1,4 +1,5 @@
 import type { DailyFeed, DailyHistory, DailyItem } from "../types/daily";
+import type { SavedItineraryDetail } from "../types/itinerary";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
@@ -73,4 +74,16 @@ export async function deleteDaily(token: string, dailyId: string): Promise<void>
     headers: { Authorization: `Bearer ${token}` },
   });
   await ensureOk(response, "Failed to delete daily");
+}
+
+export async function joinTripFromDaily(
+  token: string,
+  dailyId: string,
+): Promise<SavedItineraryDetail> {
+  const response = await fetch(`${API_URL}/api/dailies/${dailyId}/join-trip`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  await ensureOk(response, "Failed to join trip");
+  return response.json();
 }

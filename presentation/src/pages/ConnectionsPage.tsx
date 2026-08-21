@@ -23,6 +23,7 @@ import {
 import {
   createDaily,
   deleteDaily,
+  joinTripFromDaily,
   listDailies,
   listDailyHistory,
 } from "../services/dailyApi";
@@ -652,6 +653,27 @@ export function ConnectionsPage() {
       return;
     }
     openComposer();
+  };
+
+  const joinFriendTripFromDaily = async (dailyId: string) => {
+    const token = getAccessToken();
+    if (!token) return;
+    try {
+      const detail = await joinTripFromDaily(token, dailyId);
+      const sharedBy = detail.shared_by;
+      const state = {
+        itinerary: detail.itinerary,
+        places: detail.places,
+        readOnly: true,
+        sharedByName: sharedBy
+          ? sharedBy.nickname.trim() || sharedBy.full_name || sharedBy.email
+          : undefined,
+      };
+      sessionStorage.setItem(ITINERARY_RESULT_STORAGE_KEY, JSON.stringify(state));
+      navigate("/dashboard/planning/result", { state });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to join trip");
+    }
   };
 
   const openOwnTripFromDaily = async (itineraryId: string) => {
@@ -1448,6 +1470,7 @@ export function ConnectionsPage() {
           onClose={() => setViewerIndex(null)}
           onDelete={onDeleteDaily}
           onOpenTrip={openOwnTripFromDaily}
+          onJoinTrip={joinFriendTripFromDaily}
         />
       ) : null}
 

@@ -14,10 +14,13 @@ from fastapi import (
 
 from deps import get_current_user
 from schemas.dailies import DailyFeedResponse, DailyHistoryResponse, DailyItem
+from schemas.itinerary import SavedItineraryDetail
 from services.daily_service import DailyError, DailyService
+from services.trip_share_service import TripShareError, TripShareService
 
 router = APIRouter(prefix="/api/dailies", tags=["dailies"])
 _service = DailyService()
+_shares = TripShareService()
 
 
 def _raise_daily_error(exc: DailyError) -> None:
@@ -79,6 +82,18 @@ async def get_daily_image(daily_id: str) -> Response:
         _raise_daily_error(exc)
         raise
     return Response(content=data, media_type=content_type)
+
+
+@router.post("/{daily_id}/join-trip", response_model=SavedItineraryDetail)
+async def join_trip_from_daily(
+    daily_id: str,
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    """Join a friend's trip posted on a live daily (read-only share)."""
+    try:
+        return await _shares.join_from_daily(current_user, daily_id)
+    except TripShareError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
 
 @router.delete("/{daily_id}", status_code=status.HTTP_204_NO_CONTENT)

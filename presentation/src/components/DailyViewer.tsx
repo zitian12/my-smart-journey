@@ -145,6 +145,7 @@ export function DailyViewer({
   onClose,
   onDelete,
   onOpenTrip,
+  onJoinTrip,
 }: {
   groups: DailyGroup[];
   startGroupIndex: number;
@@ -153,6 +154,7 @@ export function DailyViewer({
   onClose: () => void;
   onDelete?: (dailyId: string) => Promise<void>;
   onOpenTrip?: (itineraryId: string) => void;
+  onJoinTrip?: (dailyId: string) => Promise<void>;
 }) {
   const [feed, setFeed] = useState(() =>
     groups.filter((group) => group.items.length > 0),
@@ -171,6 +173,7 @@ export function DailyViewer({
   });
   const [paused, setPaused] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [joining, setJoining] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   const group = feed[groupIndex] ?? null;
@@ -219,10 +222,10 @@ export function DailyViewer({
   }, []);
 
   useEffect(() => {
-    if (!group || paused || deleting || confirmOpen) return;
+    if (!group || paused || deleting || joining || confirmOpen) return;
     const timer = window.setTimeout(goNext, SLIDE_MS);
     return () => window.clearTimeout(timer);
-  }, [confirmOpen, deleting, goNext, group, itemIndex, paused]);
+  }, [confirmOpen, deleting, goNext, group, itemIndex, joining, paused]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -266,6 +269,16 @@ export function DailyViewer({
       setItemIndex(0);
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const confirmJoin = async () => {
+    if (!item || !onJoinTrip) return;
+    setJoining(true);
+    try {
+      await onJoinTrip(item.id);
+    } finally {
+      setJoining(false);
     }
   };
 
@@ -368,6 +381,19 @@ export function DailyViewer({
               className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-forest shadow-lg"
             >
               Open trip
+            </button>
+          </div>
+        ) : null}
+
+        {!isOwn && dailyKind(item) === "trip" && onJoinTrip ? (
+          <div className="absolute inset-x-0 bottom-0 z-20 flex justify-center px-4 pb-[max(4.5rem,calc(env(safe-area-inset-bottom)+3.25rem))]">
+            <button
+              type="button"
+              disabled={joining}
+              onClick={() => void confirmJoin()}
+              className="rounded-full bg-amber-500 px-4 py-2 text-sm font-semibold text-white shadow-lg disabled:opacity-60"
+            >
+              {joining ? "Joining…" : "Join trip"}
             </button>
           </div>
         ) : null}

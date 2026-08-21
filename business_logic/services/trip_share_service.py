@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 
 from pymongo.errors import DuplicateKeyError
 
 from database.models.trip_share import TripShare
 from integration.repositories import (
     ConnectionRepository,
+    DailyRepository,
     DestinationRepository,
     ItineraryRepository,
     TripShareRepository,
@@ -43,12 +45,14 @@ class TripShareService:
         connection_repository: ConnectionRepository | None = None,
         user_repository: UserRepository | None = None,
         destination_repository: DestinationRepository | None = None,
+        daily_repository: DailyRepository | None = None,
     ) -> None:
         self._shares = share_repository or TripShareRepository()
         self._itineraries = itinerary_repository or ItineraryRepository()
         self._connections = connection_repository or ConnectionRepository()
         self._users = user_repository or UserRepository()
         self._destinations = destination_repository or DestinationRepository()
+        self._dailies = daily_repository or DailyRepository()
 
     async def invite(
         self,
@@ -216,6 +220,73 @@ class TripShareService:
         )
         if not deleted:
             raise TripShareError("Share not found", 404)
+
+    async def join_from_daily(self, current_user: dict, daily_id: str) -> dict:
+        """Friend joins a trip posted on a live daily and gets read-only access."""
+        user_id = str(current_user["id"])
+        daily = await self._dailies.get_by_id(daily_id)
+        if daily is None:
+            raise TripShareError("Daily not found", 404)
+        if (daily.get("kind") or "") != "trip":
+            raise TripShareError("This daily is not a trip", 400)
+
+        trip = daily.get("trip") or {}
+        itinerary_id = str(trip.get("id") or "").strip()
+        if not itinerary_id:
+            raise TripShareError("Trip not found", 404)
+
+        owner_id = str(daily.get("user_id") or "")
+        if not owner_id:
+            raise TripShareError("Daily not found", 404)
+        if owner_id == user_id:
+            raise TripShareError("You already own this trip", 400)
+        if self._is_expired(daily.get("expires_at")):
+            raise TripShareError("This daily is no longer live", 400)
+        if not await self._connections.are_accepted_friends(user_id, owner_id):
+            raise TripShareError("You can only join trips from friends", 400)
+
+        itinerary = await self._itineraries.get_by_id(itinerary_id)
+        if itinerary is None or itinerary.get("user_id") != owner_id:
+            raise TripShareError("Trip not found", 404)
+
+        existing = await self._shares.get_for_recipient(itinerary_id, user_id)
+        if existing is None:
+            try:
+                await self._shares.create(
+                    TripShare(
+                        itinerary_id=itinerary_id,
+                        owner_id=owner_id,
+                        recipient_id=user_id,
+                        status="accepted",
+                    )
+                )
+            except DuplicateKeyError as exc:
+                raise TripShareError("This trip is already shared", 409) from exc
+        elif existing.get("status") != "accepted":
+            updated = await self._shares.update_status(existing["id"], "accepted")
+            if updated is None:
+                raise TripShareError("Share not found", 404)
+
+        detail = await self.get_for_viewer(current_user, itinerary_id)
+        if detail is None:
+            raise TripShareError("Trip not found", 404)
+        return detail
+
+    @staticmethod
+    def _is_expired(expires_at: object) -> bool:
+        if expires_at is None:
+            return False
+        parsed = expires_at
+        if isinstance(expires_at, str):
+            try:
+                parsed = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+            except ValueError:
+                return False
+        if not isinstance(parsed, datetime):
+            return False
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed <= datetime.now(timezone.utc)
 
     async def get_for_viewer(
         self,
