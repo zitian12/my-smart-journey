@@ -2,6 +2,7 @@ import type {
   Destination,
   DestinationCategory,
   DestinationFilters,
+  DestinationListResponse,
 } from "../types/destination";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
@@ -19,9 +20,17 @@ export async function fetchDestinationCategories(): Promise<DestinationCategory[
   return response.json();
 }
 
+export async function fetchDestinationStates(): Promise<string[]> {
+  const response = await fetch(`${API_URL}/api/destinations/states`);
+  if (!response.ok) {
+    throw new Error(await readError(response, "Failed to load states"));
+  }
+  return response.json();
+}
+
 export async function fetchDestinations(
   filters: DestinationFilters = {},
-): Promise<Destination[]> {
+): Promise<DestinationListResponse> {
   const params = new URLSearchParams();
   if (filters.name?.trim()) {
     params.set("name", filters.name.trim());
@@ -31,6 +40,12 @@ export async function fetchDestinations(
   }
   if (filters.category?.trim()) {
     params.set("category", filters.category.trim());
+  }
+  if (filters.page != null) {
+    params.set("page", String(filters.page));
+  }
+  if (filters.page_size != null) {
+    params.set("page_size", String(filters.page_size));
   }
 
   const query = params.toString();

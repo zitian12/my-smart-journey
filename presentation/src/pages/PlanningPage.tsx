@@ -13,6 +13,7 @@ import {
 } from "../services/favouriteApi";
 import {
   fetchAddressSuggestions,
+  fetchCurrentAddress,
   type AddressSuggestion,
 } from "../services/geocodeApi";
 import { generateItinerary } from "../services/itineraryApi";
@@ -132,6 +133,37 @@ function FieldShell({ children }: { children: ReactNode }) {
   );
 }
 
+function geolocationErrorMessage(error: GeolocationPositionError | null): string {
+  if (!window.isSecureContext && window.location.hostname !== "localhost") {
+    return "Location needs HTTPS (or localhost).";
+  }
+  if (!navigator.geolocation) {
+    return "Location is not supported in this browser.";
+  }
+  if (!error) return "Could not get your location.";
+  if (error.code === error.PERMISSION_DENIED) {
+    return "Location permission denied.";
+  }
+  if (error.code === error.TIMEOUT) {
+    return "Location timed out. Try again.";
+  }
+  return "Could not get your location.";
+}
+
+function readCurrentPosition(): Promise<GeolocationPosition> {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error("unsupported"));
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(resolve, reject, {
+      enableHighAccuracy: true,
+      timeout: 15000,
+      maximumAge: 60_000,
+    });
+  });
+}
+
 function AddressPicker({
   label,
   value,
@@ -152,6 +184,8 @@ function AddressPicker({
   const [open, setOpen] = useState(false);
   const [osm, setOsm] = useState<AddressSuggestion[]>([]);
   const [loading, setLoading] = useState(false);
+  const [locating, setLocating] = useState(false);
+  const [locateError, setLocateError] = useState<string | null>(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebounced(query.trim()), 400);
@@ -207,15 +241,46 @@ function AddressPicker({
       .slice(0, 5);
   }, [excludeKey, osm, recent]);
 
-  const hasMenu =
-    open && (recentMatches.length > 0 || loading || osmMatches.length > 0 || needle.length >= 3);
+  const hasMenu = open;
 
   const select = (item: AddressSuggestion) => {
     onChange(
       toEndpointPlace(item.name, item.latitude, item.longitude, item.id),
     );
     setQuery("");
+    setLocateError(null);
     setOpen(false);
+  };
+
+  const useCurrentLocation = async () => {
+    setLocateError(null);
+    setLocating(true);
+    setOpen(true);
+    try {
+      const position = await readCurrentPosition();
+      const { latitude, longitude } = position.coords;
+      let labeled: AddressSuggestion | null = null;
+      try {
+        labeled = await fetchCurrentAddress(latitude, longitude);
+      } catch {
+        labeled = null;
+      }
+      select({
+        id: `gps-${latitude.toFixed(5)}-${longitude.toFixed(5)}`,
+        name: labeled?.name?.trim() || "Current location",
+        latitude,
+        longitude,
+        subtitle: labeled?.subtitle || "GPS",
+      });
+    } catch (err) {
+      const geoErr =
+        err && typeof err === "object" && "code" in err
+          ? (err as GeolocationPositionError)
+          : null;
+      setLocateError(geolocationErrorMessage(geoErr));
+    } finally {
+      setLocating(false);
+    }
   };
 
   return (
@@ -244,6 +309,7 @@ function AddressPicker({
               value={query}
               onChange={(e) => {
                 setQuery(e.target.value);
+                setLocateError(null);
                 setOpen(true);
               }}
               onFocus={() => setOpen(true)}
@@ -252,9 +318,59 @@ function AddressPicker({
               autoComplete="off"
               className="w-full bg-transparent text-sm text-ink outline-none placeholder:text-stone/60"
             />
+            <button
+              type="button"
+              title="Use current location"
+              aria-label="Use current location"
+              disabled={locating}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => void useCurrentLocation()}
+              className="shrink-0 rounded-lg p-1.5 text-leaf transition hover:bg-leaf/10 disabled:opacity-50"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                className={`h-4 w-4 ${locating ? "animate-pulse" : ""}`}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                aria-hidden
+              >
+                <circle cx="12" cy="12" r="3" />
+                <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+                <circle cx="12" cy="12" r="8" />
+              </svg>
+            </button>
           </FieldShell>
+          {locateError ? (
+            <p className="mt-1.5 text-xs text-red-600">{locateError}</p>
+          ) : null}
           {hasMenu ? (
             <div className="absolute z-20 mt-2 max-h-64 w-full overflow-auto rounded-xl bg-white py-1 shadow-lg ring-1 ring-forest/10">
+              <div>
+                <button
+                  type="button"
+                  disabled={locating}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => void useCurrentLocation()}
+                  className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-mist disabled:opacity-60"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-4 w-4 shrink-0 text-leaf"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    aria-hidden
+                  >
+                    <circle cx="12" cy="12" r="3" />
+                    <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+                    <circle cx="12" cy="12" r="8" />
+                  </svg>
+                  <span className="text-sm font-medium text-ink">
+                    {locating ? "Locating…" : "Use current location"}
+                  </span>
+                </button>
+              </div>
               {recentMatches.length > 0 ? (
                 <div>
                   <p className="px-3 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-stone">
@@ -358,10 +474,10 @@ function CatalogStopPicker({
     async function search() {
       setLoading(true);
       try {
-        const data = await fetchDestinations({ name: debounced });
+        const data = await fetchDestinations({ name: debounced, page: 1, page_size: 20 });
         if (!cancelled) {
           setResults(
-            data
+            data.items
               .filter((item) => destinationToStop(item) && !excluded.has(item.id))
               .slice(0, 8),
           );

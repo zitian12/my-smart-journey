@@ -44,3 +44,10 @@ class DestinationSyncResult(BaseModel):
     categories_ensured: int
     destinations_upserted: int
     destinations_deactivated: int
+
+
+class DestinationListResponse(BaseModel):
+    items: list[DestinationOut]
+    total: int
+    page: int
+    page_size: int

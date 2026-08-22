@@ -5,6 +5,7 @@ from fastapi import APIRouter, Header, HTTPException, Query, status
 from config import DESTINATION_SYNC_SECRET
 from schemas.destinations import (
     DestinationCategoryOut,
+    DestinationListResponse,
     DestinationOut,
     DestinationSyncRequest,
     DestinationSyncResult,
@@ -25,7 +26,7 @@ async def list_destination_categories() -> list[dict]:
     return await service.list_categories()
 
 
-@router.get("/api/destinations", response_model=list[DestinationOut])
+@router.get("/api/destinations", response_model=DestinationListResponse)
 async def list_destinations(
     name: str | None = Query(default=None, description="Filter by destination name"),
     state: str | None = Query(default=None, description="Filter by Malaysian state"),
@@ -33,10 +34,25 @@ async def list_destinations(
         default=None,
         description="Filter by category slug or id",
     ),
-) -> list[dict]:
-    """List destinations with optional name, state, and category filters."""
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=28, ge=1, le=100),
+) -> dict:
+    """List one page of destinations with optional name, state, and category filters."""
     service = DestinationService()
-    return await service.list_destinations(name=name, state=state, category=category)
+    return await service.list_destinations(
+        name=name,
+        state=state,
+        category=category,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get("/api/destinations/states", response_model=list[str])
+async def list_destination_states() -> list[str]:
+    """Return distinct active destination states for filter dropdowns."""
+    service = DestinationService()
+    return await service.list_states()
 
 
 @router.post("/api/destinations/sync", response_model=DestinationSyncResult)

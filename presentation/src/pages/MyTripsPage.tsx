@@ -54,8 +54,18 @@ function IconHeart({ filled }: { filled?: boolean }) {
 
 function IconLeaf() {
   return (
-    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="currentColor">
-      <path d="M17 3C10.5 3 5.2 7.4 4 13.5 8.5 12.5 12.5 9 14.5 5.5 15.5 7.5 16 9.5 16 11.5c0 4-3 7.5-7 8.5 1.5 1 3.3 1.5 5 1.5 5.5 0 10-4.5 10-10S22.5 3 17 3Z" />
+    <svg
+      viewBox="0 0 24 24"
+      className="h-3.5 w-3.5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 4 18 2 22 2c0 4-2 6.5-4.1 12.2A7 7 0 0 1 11 20z" />
+      <path d="M2 22c0-3 1.9-5.4 5.1-6C9.5 15.5 12 14 13 13" />
     </svg>
   );
 }

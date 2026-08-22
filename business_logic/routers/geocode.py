@@ -1,6 +1,6 @@
-"""OSM Photon address suggestions (no Google quota)."""
+"""OSM Photon address suggestions / reverse (no Google quota)."""
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 
 from integration.external_api.photon_client import PhotonClient
 from schemas.geocode import AddressSuggestion
@@ -18,3 +18,16 @@ async def suggest_addresses(
     if len(query) < 3:
         return []
     return await _photon.suggest(query)
+
+
+@router.get("/api/geocode/reverse", response_model=AddressSuggestion)
+async def reverse_address(
+    lat: float = Query(..., ge=-90, le=90),
+    lng: float = Query(..., ge=-180, le=180),
+) -> dict:
+    """Return a label for GPS coordinates via OSM Photon reverse (no Google)."""
+    result = await _photon.reverse(lat, lng)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Address not found")
+    return result
+

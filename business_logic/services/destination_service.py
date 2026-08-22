@@ -51,8 +51,12 @@ class DestinationService:
         name: str | None = None,
         state: str | None = None,
         category: str | None = None,
-    ) -> list[dict]:
-        """Return destinations: featured first, then photos, then name."""
+        page: int = 1,
+        page_size: int = 28,
+    ) -> dict:
+        """Return one page of destinations: featured first, then photos, then name."""
+        page = max(1, int(page))
+        page_size = max(1, min(100, int(page_size)))
         category_id = None
         category_lookup = await self._category_lookup()
 
@@ -63,26 +67,41 @@ class DestinationService:
             if matched is None:
                 by_id = await self._categories.get_by_id(category)
                 if by_id is None:
-                    return []
+                    return {
+                        "items": [],
+                        "total": 0,
+                        "page": page,
+                        "page_size": page_size,
+                    }
                 category_id = by_id["id"]
             else:
                 category_id = matched["id"]
 
+        total = await self._destinations.count_destinations(
+            name=name,
+            state=state,
+            category_id=category_id,
+        )
+        skip = (page - 1) * page_size
         destinations = await self._destinations.list_destinations(
             name=name,
             state=state,
             category_id=category_id,
-            limit=1000,
+            skip=skip,
+            limit=page_size,
+            explore_order=True,
         )
-        enriched = [self._enrich(dest, category_lookup) for dest in destinations]
-        enriched.sort(
-            key=lambda item: (
-                0 if item.get("is_featured") else 1,
-                0 if (item.get("images") or []) else 1,
-                str(item.get("destination_name") or "").casefold(),
-            )
-        )
-        return enriched
+        items = [self._enrich(dest, category_lookup) for dest in destinations]
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
+
+    async def list_states(self) -> list[str]:
+        """Return distinct active destination states for filters."""
+        return await self._destinations.list_distinct_states()
 
     async def get_destination(self, destination_id: str) -> dict | None:
         """Return a destination; fill Gemini description and Places photo if needed."""

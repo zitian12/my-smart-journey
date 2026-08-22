@@ -31,4 +31,13 @@ export type DestinationFilters = {
   name?: string;
   state?: string;
   category?: string;
+  page?: number;
+  page_size?: number;
+};
+
+export type DestinationListResponse = {
+  items: Destination[];
+  total: number;
+  page: number;
+  page_size: number;
 };

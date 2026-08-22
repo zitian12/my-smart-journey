@@ -156,9 +156,121 @@ class DestinationRepository:
         category_id: str | None = None,
         source: str | None = None,
         active_only: bool = True,
+        skip: int = 0,
         limit: int = 1000,
+        explore_order: bool = False,
     ) -> list[dict]:
         """Return destinations filtered by optional name, state, and category."""
+        query = self._list_query(
+            name=name,
+            state=state,
+            category_id=category_id,
+            source=source,
+            active_only=active_only,
+        )
+        skip = max(0, int(skip))
+        limit = max(1, int(limit))
+
+        if explore_order:
+            pipeline: list[dict[str, Any]] = [
+                {"$match": query},
+                {
+                    "$addFields": {
+                        "has_image": {
+                            "$cond": [
+                                {
+                                    "$gt": [
+                                        {"$size": {"$ifNull": ["$images", []]}},
+                                        0,
+                                    ]
+                                },
+                                1,
+                                0,
+                            ]
+                        },
+                        "is_featured_rank": {
+                            "$cond": [
+                                {
+                                    "$eq": [
+                                        {"$ifNull": ["$is_featured", False]},
+                                        True,
+                                    ]
+                                },
+                                1,
+                                0,
+                            ]
+                        },
+                    }
+                },
+                {
+                    "$sort": {
+                        "is_featured_rank": -1,
+                        "has_image": -1,
+                        "destination_name": 1,
+                    }
+                },
+                {"$skip": skip},
+                {"$limit": limit},
+                {"$project": {"has_image": 0, "is_featured_rank": 0}},
+            ]
+            documents = await self._collection.aggregate(pipeline).to_list(
+                length=limit
+            )
+            return [self._serialize(doc) for doc in documents]
+
+        cursor = (
+            self._collection.find(query)
+            .sort("destination_name", 1)
+            .skip(skip)
+            .limit(limit)
+        )
+        documents = await cursor.to_list(length=limit)
+        return [self._serialize(doc) for doc in documents]
+
+    async def count_destinations(
+        self,
+        *,
+        name: str | None = None,
+        state: str | None = None,
+        category_id: str | None = None,
+        source: str | None = None,
+        active_only: bool = True,
+    ) -> int:
+        """Count destinations matching the same filters as list_destinations."""
+        query = self._list_query(
+            name=name,
+            state=state,
+            category_id=category_id,
+            source=source,
+            active_only=active_only,
+        )
+        return int(await self._collection.count_documents(query))
+
+    async def list_distinct_states(self, *, active_only: bool = True) -> list[str]:
+        """Return sorted unique state names for filter dropdowns."""
+        query: dict[str, Any] = {}
+        if active_only:
+            query["is_active"] = True
+        values = await self._collection.distinct("state", query)
+        states = sorted(
+            {
+                str(value).strip()
+                for value in values
+                if isinstance(value, str) and value.strip()
+            },
+            key=lambda item: item.casefold(),
+        )
+        return states
+
+    @staticmethod
+    def _list_query(
+        *,
+        name: str | None = None,
+        state: str | None = None,
+        category_id: str | None = None,
+        source: str | None = None,
+        active_only: bool = True,
+    ) -> dict[str, Any]:
         query: dict[str, Any] = {}
         if active_only:
             query["is_active"] = True
@@ -170,10 +282,7 @@ class DestinationRepository:
             query["source"] = source
         if name:
             query["destination_name"] = {"$regex": name.strip(), "$options": "i"}
-
-        cursor = self._collection.find(query).sort("destination_name", 1).limit(limit)
-        documents = await cursor.to_list(length=limit)
-        return [self._serialize(doc) for doc in documents]
+        return query
 
     async def list_with_coordinates(
         self,

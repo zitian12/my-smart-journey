@@ -1,8 +1,7 @@
 /**
  * Mode breakdown pie + bar charts for Eco Score (UC 5.2).
+ * Shares = carbon *saved* vs private-car baseline (driving contributes 0).
  * Pure SVG — no chart libraries, no Google Maps / external APIs.
- *
- * Place at: presentation/src/components/ModeBreakdownChart.tsx
  */
 
 import { useMemo, useState } from "react";
@@ -11,6 +10,8 @@ import { modeLabel } from "../utils/sustainability";
 export type ModeBreakdownRow = {
   mode: string;
   carbon_kg: number;
+  /** kg CO₂e saved vs car baseline; driving should be 0. */
+  saved_kg?: number;
   distance_km?: number;
   share_percent?: number;
 };
@@ -47,6 +48,16 @@ function colorForMode(mode: string, index: number): string {
 
 function formatKg(value: number): string {
   return `${value.toFixed(2)} kg`;
+}
+
+function savedForRow(row: ModeBreakdownRow): number {
+  if (row.saved_kg != null && Number.isFinite(row.saved_kg)) {
+    return Math.max(0, Number(row.saved_kg));
+  }
+  // Legacy rows without saved_kg: driving never counts as savings.
+  const mode = row.mode.trim().toLowerCase();
+  if (mode === "driving" || mode === "car") return 0;
+  return Math.max(0, Number(row.carbon_kg) || 0);
 }
 
 function polarToCartesian(
@@ -92,6 +103,7 @@ function describeArc(
 }
 
 type Slice = ModeBreakdownRow & {
+  saved: number;
   color: string;
   share: number;
   startAngle: number;
@@ -104,27 +116,19 @@ function buildSlices(rows: ModeBreakdownRow[]): Slice[] {
       ...row,
       carbon_kg: Math.max(0, Number(row.carbon_kg) || 0),
       distance_km: Math.max(0, Number(row.distance_km) || 0),
+      saved: savedForRow(row),
     }))
-    .filter((row) => row.carbon_kg > 0 || row.distance_km > 0);
+    .filter((row) => row.saved > 0);
 
-  const totalCarbon = cleaned.reduce((sum, row) => sum + row.carbon_kg, 0);
-  if (cleaned.length === 0) return [];
-
-  // If every mode is zero-carbon (e.g. all walking), slice by distance instead.
-  const useDistance = totalCarbon <= 0;
-  const total = useDistance
-    ? cleaned.reduce((sum, row) => sum + row.distance_km, 0)
-    : totalCarbon;
-
-  if (total <= 0) return [];
+  const totalSaved = cleaned.reduce((sum, row) => sum + row.saved, 0);
+  if (cleaned.length === 0 || totalSaved <= 0) return [];
 
   let angle = 0;
   return cleaned.map((row, index) => {
-    const value = useDistance ? row.distance_km : row.carbon_kg;
     const share =
-      row.share_percent != null && !useDistance
+      row.share_percent != null && row.share_percent > 0
         ? Math.max(0, Math.min(100, Number(row.share_percent)))
-        : (value / total) * 100;
+        : (row.saved / totalSaved) * 100;
     const sweep = (share / 100) * 360;
     const startAngle = angle;
     const endAngle = angle + Math.max(sweep, cleaned.length === 1 ? 360 : 0.01);
@@ -153,7 +157,7 @@ function PieChart({ slices }: { slices: Slice[] }) {
         viewBox={`0 0 ${size} ${size}`}
         className="mx-auto h-auto w-full max-w-[220px]"
         role="img"
-        aria-label={`${modeLabel(only.mode)} ${only.share.toFixed(0)} percent`}
+        aria-label={`${modeLabel(only.mode)} ${only.share.toFixed(0)} percent of carbon saved`}
       >
         <circle cx={cx} cy={cy} r={radius} fill={only.color} />
         <circle cx={cx} cy={cy} r={48} fill="#ffffff" />
@@ -184,7 +188,7 @@ function PieChart({ slices }: { slices: Slice[] }) {
       viewBox={`0 0 ${size} ${size}`}
       className="mx-auto h-auto w-full max-w-[220px]"
       role="img"
-      aria-label="Carbon emissions by transport mode"
+      aria-label="Carbon saved by transport mode"
     >
       {slices.map((slice, index) => (
         <path
@@ -197,7 +201,7 @@ function PieChart({ slices }: { slices: Slice[] }) {
           onMouseLeave={() => setActive(null)}
         >
           <title>
-            {modeLabel(slice.mode)}: {formatKg(slice.carbon_kg)} (
+            {modeLabel(slice.mode)}: {formatKg(slice.saved)} saved (
             {slice.share.toFixed(1)}%)
           </title>
         </path>
@@ -210,7 +214,7 @@ function PieChart({ slices }: { slices: Slice[] }) {
         className="fill-forest"
         style={{ fontSize: "15px", fontWeight: 600 }}
       >
-        {active != null ? `${slices[active].share.toFixed(0)}%` : "Modes"}
+        {active != null ? `${slices[active].share.toFixed(0)}%` : "Saved"}
       </text>
       <text
         x={cx}
@@ -219,32 +223,32 @@ function PieChart({ slices }: { slices: Slice[] }) {
         className="fill-stone"
         style={{ fontSize: "10px" }}
       >
-        {active != null ? modeLabel(slices[active].mode) : "by carbon"}
+        {active != null ? modeLabel(slices[active].mode) : "vs car"}
       </text>
     </svg>
   );
 }
 
 function BarChart({ slices }: { slices: Slice[] }) {
-  const maxCarbon = Math.max(...slices.map((s) => s.carbon_kg), 0.001);
+  const maxSaved = Math.max(...slices.map((s) => s.saved), 0.001);
 
   return (
-    <ul className="space-y-3" aria-label="Carbon by transport mode">
+    <ul className="space-y-3" aria-label="Carbon saved by transport mode">
       {slices.map((slice, index) => {
-        const widthPct = Math.max(4, (slice.carbon_kg / maxCarbon) * 100);
+        const widthPct = Math.max(4, (slice.saved / maxSaved) * 100);
         return (
           <li key={`${slice.mode}-${index}`}>
             <div className="mb-1 flex items-center justify-between gap-2 text-sm">
               <span className="font-medium text-ink">{modeLabel(slice.mode)}</span>
               <span className="shrink-0 text-xs text-stone">
-                {formatKg(slice.carbon_kg)} · {slice.share.toFixed(0)}%
+                {formatKg(slice.saved)} · {slice.share.toFixed(0)}%
               </span>
             </div>
             <div className="h-2.5 overflow-hidden rounded-full bg-mist">
               <div
                 className="h-full rounded-full transition-[width] duration-500"
                 style={{ width: `${widthPct}%`, backgroundColor: slice.color }}
-                title={`${modeLabel(slice.mode)}: ${formatKg(slice.carbon_kg)}`}
+                title={`${modeLabel(slice.mode)}: ${formatKg(slice.saved)} saved`}
               />
             </div>
             {slice.distance_km != null && slice.distance_km > 0 ? (
@@ -261,7 +265,7 @@ function BarChart({ slices }: { slices: Slice[] }) {
 
 export function ModeBreakdownChart({
   rows,
-  title = "Emissions by transport mode",
+  title = "Carbon saved by transport mode",
   defaultView = "pie",
 }: {
   rows: ModeBreakdownRow[];
@@ -270,13 +274,18 @@ export function ModeBreakdownChart({
 }) {
   const [view, setView] = useState<ChartView>(defaultView);
   const slices = useMemo(() => buildSlices(rows), [rows]);
+  const hasLegs = rows.some(
+    (row) => (row.distance_km ?? 0) > 0 || (row.carbon_kg ?? 0) > 0,
+  );
 
   if (slices.length === 0) {
     return (
       <section className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-forest/5 sm:p-8">
         <h2 className="text-lg font-semibold text-ink">{title}</h2>
         <p className="mt-3 text-sm text-stone">
-          No transport-mode carbon data for this itinerary yet.
+          {hasLegs
+            ? "No carbon saved yet — private car matches the baseline (0 kg saved). Switch some legs to walking or public transport to see savings here."
+            : "No transport-mode data for this itinerary yet."}
         </p>
       </section>
     );
@@ -337,7 +346,7 @@ export function ModeBreakdownChart({
               </span>
               <span className="shrink-0 text-right text-sm">
                 <span className="font-semibold text-forest">
-                  {formatKg(slice.carbon_kg)}
+                  {formatKg(slice.saved)} saved
                 </span>
                 <span className="mt-0.5 block text-[11px] text-stone">
                   {slice.share.toFixed(1)}%
@@ -352,8 +361,8 @@ export function ModeBreakdownChart({
       </div>
 
       <p className="mt-4 text-xs text-stone">
-        Shares are based on carbon (kg CO₂e) per mode. Walking and cycling show 0
-        kg; if every leg is zero-carbon, the chart uses distance instead.
+        Shares are kg CO₂e saved versus a private-car baseline for the same
+        distance. Car / driving always contributes 0 kg saved.
       </p>
     </section>
   );

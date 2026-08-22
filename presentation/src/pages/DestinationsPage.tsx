@@ -6,6 +6,7 @@ import { useAuth } from "../context/AuthContext";
 import {
   fetchDestinationCategories,
   fetchDestinations,
+  fetchDestinationStates,
 } from "../services/destinationApi";
 import {
   addFavourite,
@@ -20,6 +21,8 @@ import {
   categoryPlaceholderClass,
   realDestinationImages,
 } from "../utils/destinationMedia";
+
+const PAGE_SIZE = 28;
 
 function PlaceCard({
   destination,
@@ -115,6 +118,9 @@ export function DestinationsPage() {
   const [debouncedName, setDebouncedName] = useState("");
   const [stateFilter, setStateFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageInput, setPageInput] = useState("1");
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [favouriteMessage, setFavouriteMessage] = useState<string | null>(null);
@@ -125,6 +131,14 @@ export function DestinationsPage() {
     }, 300);
     return () => window.clearTimeout(timer);
   }, [nameQuery]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedName, stateFilter, categoryFilter]);
+
+  useEffect(() => {
+    setPageInput(String(page));
+  }, [page]);
 
   useEffect(() => {
     let cancelled = false;
@@ -143,6 +157,32 @@ export function DestinationsPage() {
     }
 
     void loadCategories();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadStates() {
+      try {
+        const states = await fetchDestinationStates();
+        if (cancelled) {
+          return;
+        }
+        setAvailableStates(states);
+        setStateFilter((current) =>
+          current && !states.includes(current) ? "" : current,
+        );
+      } catch {
+        if (!cancelled) {
+          setAvailableStates([]);
+        }
+      }
+    }
+
+    void loadStates();
     return () => {
       cancelled = true;
     };
@@ -182,40 +222,6 @@ export function DestinationsPage() {
   useEffect(() => {
     let cancelled = false;
 
-    async function loadAvailableStates() {
-      try {
-        const data = await fetchDestinations({
-          name: debouncedName || undefined,
-          category: categoryFilter || undefined,
-        });
-        if (cancelled) {
-          return;
-        }
-
-        const states = Array.from(
-          new Set(data.map((item) => item.state.trim()).filter(Boolean)),
-        ).sort((a, b) => a.localeCompare(b));
-
-        setAvailableStates(states);
-        setStateFilter((current) =>
-          current && !states.includes(current) ? "" : current,
-        );
-      } catch {
-        if (!cancelled) {
-          setAvailableStates([]);
-        }
-      }
-    }
-
-    void loadAvailableStates();
-    return () => {
-      cancelled = true;
-    };
-  }, [debouncedName, categoryFilter]);
-
-  useEffect(() => {
-    let cancelled = false;
-
     async function loadDestinations() {
       setLoading(true);
       setError(null);
@@ -224,13 +230,21 @@ export function DestinationsPage() {
           name: debouncedName || undefined,
           state: stateFilter || undefined,
           category: categoryFilter || undefined,
+          page,
+          page_size: PAGE_SIZE,
         });
         if (!cancelled) {
-          setDestinations(data);
+          setDestinations(data.items);
+          setTotal(data.total);
+          const maxPage = Math.max(1, Math.ceil(data.total / data.page_size) || 1);
+          if (page > maxPage) {
+            setPage(maxPage);
+          }
         }
       } catch (err) {
         if (!cancelled) {
           setDestinations([]);
+          setTotal(0);
           setError(
             err instanceof Error ? err.message : "Failed to load destinations",
           );
@@ -246,7 +260,22 @@ export function DestinationsPage() {
     return () => {
       cancelled = true;
     };
-  }, [debouncedName, stateFilter, categoryFilter]);
+  }, [debouncedName, stateFilter, categoryFilter, page]);
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE) || 1);
+  const rangeStart = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const rangeEnd = Math.min(page * PAGE_SIZE, total);
+
+  const goToTypedPage = () => {
+    const parsed = Number.parseInt(pageInput.trim(), 10);
+    if (!Number.isFinite(parsed)) {
+      setPageInput(String(page));
+      return;
+    }
+    const next = Math.min(totalPages, Math.max(1, parsed));
+    setPage(next);
+    setPageInput(String(next));
+  };
 
   const handleToggleFavourite = async (destinationId: string) => {
     if (!isAuthenticated) {
@@ -379,16 +408,80 @@ export function DestinationsPage() {
           then refresh this page.
         </p>
       ) : (
-        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {destinations.map((destination) => (
-            <PlaceCard
-              key={destination.id}
-              destination={destination}
-              isFavourite={favouriteIds.has(destination.id)}
-              onToggleFavourite={handleToggleFavourite}
-            />
-          ))}
-        </div>
+        <>
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {destinations.map((destination) => (
+              <PlaceCard
+                key={destination.id}
+                destination={destination}
+                isFavourite={favouriteIds.has(destination.id)}
+                onToggleFavourite={handleToggleFavourite}
+              />
+            ))}
+          </div>
+
+          <div className="mt-8 flex flex-col items-center justify-between gap-4 sm:flex-row">
+            <p className="text-sm text-stone">
+              Showing{" "}
+              <span className="font-medium text-forest">
+                {rangeStart}–{rangeEnd}
+              </span>{" "}
+              of <span className="font-medium text-forest">{total}</span>
+            </p>
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <button
+                type="button"
+                disabled={page <= 1}
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+                className="rounded-xl border border-forest/15 bg-white px-3 py-2 text-sm font-medium text-forest transition hover:bg-mist disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Previous
+              </button>
+              <p className="text-sm text-stone">
+                Page{" "}
+                <span className="font-medium text-forest">{page}</span> of{" "}
+                <span className="font-medium text-forest">{totalPages}</span>
+              </p>
+              <button
+                type="button"
+                disabled={page >= totalPages}
+                onClick={() =>
+                  setPage((current) => Math.min(totalPages, current + 1))
+                }
+                className="rounded-xl border border-forest/15 bg-white px-3 py-2 text-sm font-medium text-forest transition hover:bg-mist disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Next
+              </button>
+              <form
+                className="flex items-center gap-2 border-l border-forest/10 pl-3"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  goToTypedPage();
+                }}
+              >
+                <label className="flex items-center gap-2 text-sm text-stone">
+                  <span className="whitespace-nowrap">Go to</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={totalPages}
+                    value={pageInput}
+                    onChange={(event) => setPageInput(event.target.value)}
+                    onBlur={goToTypedPage}
+                    aria-label="Page number"
+                    className="w-16 rounded-xl border border-forest/15 bg-white px-2 py-2 text-center text-sm text-ink outline-none transition focus:border-leaf focus:ring-2 focus:ring-leaf/20"
+                  />
+                </label>
+                <button
+                  type="submit"
+                  className="rounded-xl bg-forest px-3 py-2 text-sm font-medium text-white transition hover:bg-forest/90"
+                >
+                  Go
+                </button>
+              </form>
+            </div>
+          </div>
+        </>
       )}
     </div>
   );

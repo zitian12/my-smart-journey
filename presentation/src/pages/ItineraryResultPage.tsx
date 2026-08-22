@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { DestinationImage } from "../components/DestinationImage";
 import { MalaysiaMap, type MapMarker } from "../components/MalaysiaMap";
 import { useAuth } from "../context/AuthContext";
+import { LoginModal } from "../components/LoginModal";
 import { fetchDestinations } from "../services/destinationApi";
 import { recomputeItinerary, saveItinerary, updateItinerary } from "../services/itineraryApi";
 import type { Destination } from "../types/destination";
@@ -328,10 +329,10 @@ function AddStopPicker({
     async function search() {
       setLoading(true);
       try {
-        const data = await fetchDestinations({ name: debounced });
+        const data = await fetchDestinations({ name: debounced, page: 1, page_size: 20 });
         if (!cancelled) {
           setResults(
-            data
+            data.items
               .filter((d) => hasCoords(d) && !excluded.has(d.id))
               .slice(0, 8),
           );
@@ -425,6 +426,8 @@ export function ItineraryResultPage() {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [namingOpen, setNamingOpen] = useState(false);
   const [saveChooserOpen, setSaveChooserOpen] = useState(false);
+  const [loginOpen, setLoginOpen] = useState(false);
+  const [pendingSaveAfterLogin, setPendingSaveAfterLogin] = useState(false);
   const [tripName, setTripName] = useState("");
   const readOnly = Boolean(initial?.readOnly);
   const sharedByName = initial?.sharedByName;
@@ -653,14 +656,8 @@ export function ItineraryResultPage() {
     ? `${itinerary.start_location} → ${itinerary.end_location}`
     : "";
 
-  const openSaveDialog = () => {
-    if (readOnly) return;
+  const continueSaveAfterAuth = () => {
     setSaveError(null);
-    setSaveSuccess(false);
-    if (!isAuthenticated) {
-      setSaveError("Please sign in from the sidebar to save this trip.");
-      return;
-    }
     if (savedItineraryId) {
       setNamingOpen(false);
       setSaveChooserOpen(true);
@@ -669,6 +666,18 @@ export function ItineraryResultPage() {
     setTripName(defaultTripName);
     setSaveChooserOpen(false);
     setNamingOpen(true);
+  };
+
+  const openSaveDialog = () => {
+    if (readOnly) return;
+    setSaveError(null);
+    setSaveSuccess(false);
+    if (!isAuthenticated) {
+      setPendingSaveAfterLogin(true);
+      setLoginOpen(true);
+      return;
+    }
+    continueSaveAfterAuth();
   };
 
   const savePayload = () => {
@@ -693,8 +702,9 @@ export function ItineraryResultPage() {
     if (!itinerary || saveBusy || !savedItineraryId) return;
     const token = getAccessToken();
     if (!token) {
-      setSaveError("Please sign in from the sidebar to save this trip.");
       setSaveChooserOpen(false);
+      setPendingSaveAfterLogin(true);
+      setLoginOpen(true);
       return;
     }
     const payload = savePayload();
@@ -720,8 +730,9 @@ export function ItineraryResultPage() {
     if (!itinerary || saveBusy) return;
     const token = getAccessToken();
     if (!token) {
-      setSaveError("Please sign in from the sidebar to save this trip.");
       setNamingOpen(false);
+      setPendingSaveAfterLogin(true);
+      setLoginOpen(true);
       return;
     }
     const payload = savePayload();
@@ -872,6 +883,20 @@ export function ItineraryResultPage() {
           </button>
         </div>
       </header>
+
+      <LoginModal
+        open={loginOpen}
+        title="Sign in to save this trip"
+        message="Sign in with Google to save your itinerary to My Trips."
+        onClose={() => {
+          setLoginOpen(false);
+          setPendingSaveAfterLogin(false);
+        }}
+        onLoggedIn={() => {
+          setPendingSaveAfterLogin(false);
+          continueSaveAfterAuth();
+        }}
+      />
 
       {saveChooserOpen ? (
         <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-forest/10 print:hidden sm:p-6">

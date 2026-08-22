@@ -11,6 +11,7 @@ import requests
 logger = logging.getLogger(__name__)
 
 PHOTON_URL = "https://photon.komoot.io/api/"
+PHOTON_REVERSE_URL = "https://photon.komoot.io/reverse"
 _USER_AGENT = "my-smart-journey/1.0"
 _MY_BBOX = "99.6,0.85,119.3,7.52"
 _MY_BIAS = (3.139, 101.6869)
@@ -19,12 +20,13 @@ _MIN_LNG, _MAX_LNG = 99.6, 119.3
 
 
 class PhotonClient:
-    """Malaysia-scoped Photon autocomplete with an in-process cache."""
+    """Malaysia-scoped Photon autocomplete / reverse with an in-process cache."""
 
     def __init__(self, *, timeout: float = 8.0, limit: int = 5) -> None:
         self._timeout = timeout
         self._limit = limit
         self._cache: dict[str, list[dict[str, Any]]] = {}
+        self._reverse_cache: dict[tuple[float, float], dict[str, Any] | None] = {}
 
     async def suggest(self, query: str) -> list[dict[str, Any]]:
         key = " ".join(query.strip().lower().split())
@@ -37,6 +39,18 @@ class PhotonClient:
         results = await loop.run_in_executor(None, self._suggest_sync, key)
         self._cache[key] = results
         return results
+
+    async def reverse(self, latitude: float, longitude: float) -> dict[str, Any] | None:
+        """Resolve a label for GPS coords; keep the caller's lat/lng for routing."""
+        cache_key = (round(float(latitude), 5), round(float(longitude), 5))
+        if cache_key in self._reverse_cache:
+            return self._reverse_cache[cache_key]
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            None, self._reverse_sync, cache_key[0], cache_key[1]
+        )
+        self._reverse_cache[cache_key] = result
+        return result
 
     def _suggest_sync(self, query: str) -> list[dict[str, Any]]:
         params = {
@@ -78,8 +92,49 @@ class PhotonClient:
                 break
         return results
 
+    def _reverse_sync(self, latitude: float, longitude: float) -> dict[str, Any] | None:
+        if not (_MIN_LAT <= latitude <= _MAX_LAT and _MIN_LNG <= longitude <= _MAX_LNG):
+            return None
+        params = {
+            "lat": str(latitude),
+            "lon": str(longitude),
+            "lang": "en",
+            "limit": "1",
+        }
+        try:
+            response = requests.get(
+                PHOTON_REVERSE_URL,
+                params=params,
+                timeout=self._timeout,
+                headers={"User-Agent": _USER_AGENT, "Accept": "application/json"},
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except Exception:
+            logger.exception(
+                "Photon reverse failed for lat=%s lon=%s", latitude, longitude
+            )
+            return None
+
+        features = payload.get("features") or []
+        if not features:
+            return None
+        # Prefer a Malaysia-scoped label, but still allow unlabeled hits inside bbox.
+        parsed = self._parse_feature(features[0], require_malaysia=False)
+        if parsed is None:
+            return None
+        return {
+            **parsed,
+            "latitude": latitude,
+            "longitude": longitude,
+        }
+
     @staticmethod
-    def _parse_feature(feature: dict[str, Any]) -> dict[str, Any] | None:
+    def _parse_feature(
+        feature: dict[str, Any],
+        *,
+        require_malaysia: bool = True,
+    ) -> dict[str, Any] | None:
         geometry = feature.get("geometry") or {}
         coords = geometry.get("coordinates") or []
         if len(coords) < 2:
@@ -93,15 +148,13 @@ class PhotonClient:
             return None
 
         props = feature.get("properties") or {}
-        if not PhotonClient._is_malaysia(props):
+        if require_malaysia and not PhotonClient._is_malaysia(props):
             return None
 
-        name = str(
-            props.get("name")
-            or props.get("street")
-            or props.get("housenumber")
-            or ""
-        ).strip()
+        street = str(props.get("street") or "").strip()
+        housenumber = str(props.get("housenumber") or "").strip()
+        street_line = " ".join(part for part in (housenumber, street) if part)
+        name = str(props.get("name") or street_line or "").strip()
         city = str(
             props.get("city")
             or props.get("district")
