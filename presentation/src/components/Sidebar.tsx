@@ -1,8 +1,8 @@
-import { useRef } from "react";
-import { GoogleLogin, type CredentialResponse } from "@react-oauth/google";
+import { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { usePendingCounts } from "../context/PendingCountsContext";
+import { LoginModal } from "./LoginModal";
 import { UserAvatar } from "./UserAvatar";
 
 type MenuItem = { id: string; label: string; to: string };
@@ -24,28 +24,10 @@ type SidebarProps = {
 };
 
 export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
-  const { user, isAuthenticated, isLoading, loginWithGoogle, logout } = useAuth();
+  const { user, isAuthenticated, logout } = useAuth();
   const { friendPending, tripPending } = usePendingCounts();
   const navigate = useNavigate();
-  const googleLoginRef = useRef<HTMLDivElement>(null);
-
-  const openGoogleSignIn = () => {
-    const button = googleLoginRef.current?.querySelector(
-      'div[role="button"]',
-    ) as HTMLElement | null;
-    button?.click();
-  };
-
-  const handleGoogleSuccess = async (response: CredentialResponse) => {
-    if (!response.credential) return;
-    try {
-      await loginWithGoogle(response.credential);
-      onClose();
-      navigate("/dashboard", { replace: true });
-    } catch (error) {
-      console.error("Google sign-in failed:", error);
-    }
-  };
+  const [loginOpen, setLoginOpen] = useState(false);
 
   return (
     <aside
@@ -137,26 +119,26 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
             </button>
           </div>
         ) : (
-          <div className="space-y-2">
-            <button
-              type="button"
-              onClick={openGoogleSignIn}
-              disabled={isLoading}
-              className="w-full rounded-lg border border-leaf/30 px-3 py-2.5 text-sm font-medium text-forest transition-colors hover:border-leaf/50 hover:bg-leaf/5 disabled:opacity-50"
-            >
-              Sign In / Register
-            </button>
-            <div ref={googleLoginRef} className="sr-only" aria-hidden="true">
-              <GoogleLogin
-                onSuccess={handleGoogleSuccess}
-                onError={() =>
-                  console.error("Google sign-in was cancelled or failed")
-                }
-              />
-            </div>
-          </div>
+          <button
+            type="button"
+            onClick={() => setLoginOpen(true)}
+            className="w-full rounded-lg border border-leaf/30 px-3 py-2.5 text-sm font-medium text-forest transition-colors hover:border-leaf/50 hover:bg-leaf/5"
+          >
+            Sign In / Register
+          </button>
         )}
       </div>
+
+      <LoginModal
+        open={loginOpen}
+        title="Sign in to My Smart Journey"
+        message="Use Google to sync trips, friends, and eco progress across devices."
+        onClose={() => setLoginOpen(false)}
+        onLoggedIn={() => {
+          onClose();
+          navigate("/dashboard", { replace: true });
+        }}
+      />
     </aside>
   );
 }

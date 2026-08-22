@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
-import { GoogleLogin, type CredentialResponse } from "@react-oauth/google";
+import { useEffect, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { LoginModal } from "./LoginModal";
 import { UserAvatar } from "./UserAvatar";
 
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
@@ -21,11 +21,11 @@ const mobileNavLinkClass = ({ isActive }: { isActive: boolean }) =>
   ].join(" ");
 
 export function Navbar() {
-  const { user, isAuthenticated, isLoading, loginWithGoogle, logout } = useAuth();
+  const { user, isAuthenticated, logout } = useAuth();
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const googleLoginRef = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [loginOpen, setLoginOpen] = useState(false);
 
   useEffect(() => {
     setMenuOpen(false);
@@ -40,22 +40,9 @@ export function Navbar() {
     return () => window.removeEventListener("keydown", onKey);
   }, [menuOpen]);
 
-  const openGoogleSignIn = () => {
-    const button = googleLoginRef.current?.querySelector(
-      'div[role="button"]',
-    ) as HTMLElement | null;
-    button?.click();
-  };
-
-  const handleGoogleSuccess = async (response: CredentialResponse) => {
-    if (!response.credential) return;
-    try {
-      await loginWithGoogle(response.credential);
-      setMenuOpen(false);
-      navigate("/dashboard", { replace: true });
-    } catch (error) {
-      console.error("Google sign-in failed:", error);
-    }
+  const openLogin = () => {
+    setMenuOpen(false);
+    setLoginOpen(true);
   };
 
   return (
@@ -119,17 +106,15 @@ export function Navbar() {
             <>
               <button
                 type="button"
-                onClick={openGoogleSignIn}
-                disabled={isLoading}
-                className="rounded-lg border border-leaf/30 bg-transparent px-3 py-2 text-sm font-medium text-forest transition-colors hover:border-leaf/50 hover:bg-leaf/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-leaf disabled:opacity-50 sm:px-4"
+                onClick={openLogin}
+                className="rounded-lg border border-leaf/30 bg-transparent px-3 py-2 text-sm font-medium text-forest transition-colors hover:border-leaf/50 hover:bg-leaf/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-leaf sm:px-4"
               >
                 Login
               </button>
               <button
                 type="button"
-                onClick={openGoogleSignIn}
-                disabled={isLoading}
-                className="rounded-lg bg-leaf px-3 py-2 text-sm font-semibold text-white shadow-sm shadow-ink/10 transition-colors hover:bg-forest focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-leaf disabled:opacity-50 sm:px-4"
+                onClick={openLogin}
+                className="rounded-lg bg-leaf px-3 py-2 text-sm font-semibold text-white shadow-sm shadow-ink/10 transition-colors hover:bg-forest focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-leaf sm:px-4"
               >
                 Sign Up
               </button>
@@ -199,17 +184,15 @@ export function Navbar() {
               <>
                 <button
                   type="button"
-                  onClick={openGoogleSignIn}
-                  disabled={isLoading}
-                  className="rounded-lg border border-leaf/30 px-3 py-2.5 text-sm font-medium text-forest transition-colors hover:bg-leaf/5 disabled:opacity-50"
+                  onClick={openLogin}
+                  className="rounded-lg border border-leaf/30 px-3 py-2.5 text-sm font-medium text-forest transition-colors hover:bg-leaf/5"
                 >
                   Login
                 </button>
                 <button
                   type="button"
-                  onClick={openGoogleSignIn}
-                  disabled={isLoading}
-                  className="rounded-lg bg-leaf px-3 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-forest disabled:opacity-50"
+                  onClick={openLogin}
+                  className="rounded-lg bg-leaf px-3 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-forest"
                 >
                   Sign Up
                 </button>
@@ -219,14 +202,13 @@ export function Navbar() {
         </div>
       ) : null}
 
-      <div ref={googleLoginRef} className="sr-only" aria-hidden="true">
-        <GoogleLogin
-          onSuccess={handleGoogleSuccess}
-          onError={() =>
-            console.error("Google sign-in was cancelled or failed")
-          }
-        />
-      </div>
+      <LoginModal
+        open={loginOpen}
+        title="Sign in to My Smart Journey"
+        message="Use Google to sync trips, friends, and eco progress across devices."
+        onClose={() => setLoginOpen(false)}
+        onLoggedIn={() => navigate("/dashboard", { replace: true })}
+      />
     </header>
   );
 }

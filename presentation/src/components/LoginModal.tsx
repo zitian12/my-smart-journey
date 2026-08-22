@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import { GoogleLogin, type CredentialResponse } from "@react-oauth/google";
 import { useAuth } from "../context/AuthContext";
@@ -19,7 +19,6 @@ export function LoginModal({
   onLoggedIn,
 }: LoginModalProps) {
   const { loginWithGoogle, isLoading } = useAuth();
-  const googleLoginRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -43,13 +42,6 @@ export function LoginModal({
     }
   };
 
-  const openGoogleSignIn = () => {
-    const button = googleLoginRef.current?.querySelector(
-      'div[role="button"]',
-    ) as HTMLElement | null;
-    button?.click();
-  };
-
   return createPortal(
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 print:hidden">
       <button
@@ -71,29 +63,33 @@ export function LoginModal({
           {title}
         </h2>
         <p className="mt-2 text-sm leading-relaxed text-stone">{message}</p>
-        <button
-          type="button"
-          disabled={isLoading}
-          onClick={openGoogleSignIn}
-          className="mt-5 w-full rounded-xl bg-forest px-4 py-3 text-sm font-semibold text-white transition hover:bg-leaf disabled:opacity-60"
-        >
-          {isLoading ? "Signing in…" : "Continue with Google"}
-        </button>
+
+        <div className="mt-5 flex min-h-12 items-center justify-center">
+          {isLoading ? (
+            <p className="text-sm font-medium text-stone">Signing in…</p>
+          ) : (
+            <GoogleLogin
+              onSuccess={(response) => void handleGoogleSuccess(response)}
+              onError={() =>
+                console.error("Google sign-in was cancelled or failed")
+              }
+              useOneTap={false}
+              theme="outline"
+              size="large"
+              text="continue_with"
+              shape="rectangular"
+              width="320"
+            />
+          )}
+        </div>
+
         <button
           type="button"
           onClick={onClose}
-          className="mt-2 w-full rounded-xl px-4 py-2.5 text-sm font-medium text-stone transition hover:bg-mist"
+          className="mt-3 w-full rounded-xl px-4 py-2.5 text-sm font-medium text-stone transition hover:bg-mist"
         >
           Cancel
         </button>
-        <div ref={googleLoginRef} className="sr-only" aria-hidden="true">
-          <GoogleLogin
-            onSuccess={(response) => void handleGoogleSuccess(response)}
-            onError={() =>
-              console.error("Google sign-in was cancelled or failed")
-            }
-          />
-        </div>
       </div>
     </div>,
     document.body,
