@@ -27,6 +27,11 @@ npm run dev
 
 Open http://localhost:5173
 
+## Deploy (public URL)
+
+To run on phones / other PCs (not only localhost), follow **[DEPLOY.md](DEPLOY.md)**  
+(MongoDB Atlas + Render API + Vercel frontend). Free tiers work; Render may cold-start after idle.
+
 ## Quick start (API)
 
 ```bash

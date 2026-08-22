@@ -25,3 +25,11 @@ GOOGLE_CSE_CX = os.getenv("GOOGLE_CSE_CX", "")
 
 # SerpApi Google Images (recommended — full Google Images results)
 SERPAPI_API_KEY = os.getenv("SERPAPI_API_KEY", "")
+
+# Comma-separated browser origins for CORS (e.g. https://app.vercel.app).
+# Empty = allow all origins (convenient for first deploy).
+CORS_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv("CORS_ORIGINS", "").split(",")
+    if origin.strip()
+]

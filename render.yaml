@@ -1,0 +1,36 @@
+# Render Blueprint — My Smart Journey API
+# https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: my-smart-journey-api
+    runtime: python
+    plan: free
+    rootDir: .
+    buildCommand: pip install -r business_logic/requirements.txt
+    startCommand: cd business_logic && uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.0"
+      - key: MONGO_URI
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_ALGORITHM
+        value: HS256
+      - key: JWT_EXPIRE_MINUTES
+        value: "10080"
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash-lite
+      - key: DESTINATION_SYNC_SECRET
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: OSRM_BASE_URL
+        value: https://router.project-osrm.org

@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from database.connection import verify_connection
+from config import CORS_ORIGINS
 from integration.repositories import (
     ConnectionRepository,
     DailyRepository,
@@ -38,9 +39,10 @@ _UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="My Smart Journey")
 
+_cors_origins = CORS_ORIGINS if CORS_ORIGINS else ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
