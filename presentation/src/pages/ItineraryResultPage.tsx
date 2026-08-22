@@ -427,7 +427,6 @@ export function ItineraryResultPage() {
   const [namingOpen, setNamingOpen] = useState(false);
   const [saveChooserOpen, setSaveChooserOpen] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
-  const [pendingSaveAfterLogin, setPendingSaveAfterLogin] = useState(false);
   const [tripName, setTripName] = useState("");
   const readOnly = Boolean(initial?.readOnly);
   const sharedByName = initial?.sharedByName;
@@ -673,7 +672,6 @@ export function ItineraryResultPage() {
     setSaveError(null);
     setSaveSuccess(false);
     if (!isAuthenticated) {
-      setPendingSaveAfterLogin(true);
       setLoginOpen(true);
       return;
     }
@@ -703,7 +701,6 @@ export function ItineraryResultPage() {
     const token = getAccessToken();
     if (!token) {
       setSaveChooserOpen(false);
-      setPendingSaveAfterLogin(true);
       setLoginOpen(true);
       return;
     }
@@ -731,7 +728,6 @@ export function ItineraryResultPage() {
     const token = getAccessToken();
     if (!token) {
       setNamingOpen(false);
-      setPendingSaveAfterLogin(true);
       setLoginOpen(true);
       return;
     }
@@ -888,14 +884,8 @@ export function ItineraryResultPage() {
         open={loginOpen}
         title="Sign in to save this trip"
         message="Sign in with Google to save your itinerary to My Trips."
-        onClose={() => {
-          setLoginOpen(false);
-          setPendingSaveAfterLogin(false);
-        }}
-        onLoggedIn={() => {
-          setPendingSaveAfterLogin(false);
-          continueSaveAfterAuth();
-        }}
+        onClose={() => setLoginOpen(false)}
+        onLoggedIn={() => continueSaveAfterAuth()}
       />
 
       {saveChooserOpen ? (
