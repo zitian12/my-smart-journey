@@ -1,7 +1,8 @@
 /**
  * Eco Score / Sustainability Score Dashboard (UC 5.1–5.3).
+ * - Select itinerary: All trips or a single saved trip
  * - Export PDF (browser print → Save as PDF)
- * - Monthly / annual history filter + trip counts
+ * - Monthly / annual history filter + trip counts (All trips)
  *
  * Place at: presentation/src/pages/EcoScorePage.tsx
  *
@@ -12,6 +13,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ModeBreakdownChart } from "../components/ModeBreakdownChart";
+import type { ModeBreakdownRow } from "../components/ModeBreakdownChart";
 import { useAuth } from "../context/AuthContext";
 import {
   getItinerary,
@@ -30,6 +32,7 @@ import {
   exportEcoScorePdf,
 } from "../utils/exportEcoScorePdf";
 import {
+  aggregatePeriodModeBreakdown,
   aggregateTripFootprints,
   modeLabel,
   ratingLabel,
@@ -244,6 +247,11 @@ export function EcoScorePage() {
   const [selectedMonth, setSelectedMonth] = useState<string>("");
   /** YYYY when scope === year */
   const [selectedYear, setSelectedYear] = useState<string>("");
+  /** Loaded itineraries for period mode chart (all / month / year) */
+  const [periodItineraries, setPeriodItineraries] = useState<
+    ItineraryGenerateResponse[]
+  >([]);
+  const [periodModeLoading, setPeriodModeLoading] = useState(false);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -388,6 +396,54 @@ export function EcoScorePage() {
     if (filteredTrips.length === 0) return emptyTotals();
     return aggregateTripFootprints(filteredTrips);
   }, [filteredTrips]);
+
+  // Load full itineraries for period mode breakdown chart (All trips only)
+  useEffect(() => {
+    if (selected !== ALL || filteredTrips.length === 0) {
+      setPeriodItineraries([]);
+      setPeriodModeLoading(false);
+      return;
+    }
+
+    const token = getAccessToken();
+    if (!token) {
+      setPeriodItineraries([]);
+      setPeriodModeLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setPeriodModeLoading(true);
+    const ids = filteredTrips.map((t) => t.id);
+
+    void Promise.all(
+      ids.map((id) =>
+        getItinerary(token, id)
+          .then((item) => item.itinerary)
+          .catch(() => null),
+      ),
+    )
+      .then((results) => {
+        if (cancelled) return;
+        setPeriodItineraries(
+          results.filter((item): item is ItineraryGenerateResponse =>
+            Boolean(item),
+          ),
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setPeriodModeLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selected, filteredTrips, getAccessToken]);
+
+  const periodModeRows: ModeBreakdownRow[] = useMemo(
+    () => aggregatePeriodModeBreakdown(periodItineraries),
+    [periodItineraries],
+  );
 
   const periodLabel = useMemo(() => {
     if (historyScope === "month" && selectedMonth) {
@@ -590,6 +646,8 @@ export function EcoScorePage() {
           periodLabel={periodLabel}
           historyScope={historyScope}
           totals={totals}
+          periodModeRows={periodModeRows}
+          periodModeLoading={periodModeLoading}
           isAuthenticated={isAuthenticated}
           onPickTrip={(id) => onSelect(id)}
           onPlan={() => navigate("/dashboard/planning")}
@@ -619,6 +677,8 @@ function AllTripsView({
   periodLabel,
   historyScope,
   totals,
+  periodModeRows,
+  periodModeLoading,
   isAuthenticated,
   onPickTrip,
   onPlan,
@@ -628,6 +688,8 @@ function AllTripsView({
   periodLabel: string;
   historyScope: HistoryScope;
   totals: SustainabilitySummary;
+  periodModeRows: ModeBreakdownRow[];
+  periodModeLoading: boolean;
   isAuthenticated: boolean;
   onPickTrip: (id: string) => void;
   onPlan: () => void;
@@ -745,12 +807,22 @@ function AllTripsView({
             </p>
           </section>
 
-          {totals.breakdown_by_mode?.length ? (
+          {periodModeLoading ? (
+            <section className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-forest/5 sm:p-8">
+              <h2 className="text-lg font-semibold text-ink">
+                Total CO₂e by transport mode
+              </h2>
+              <p className="mt-3 text-sm text-stone">
+                Loading mode breakdown for this period…
+              </p>
+            </section>
+          ) : (
             <ModeBreakdownChart
-              rows={totals.breakdown_by_mode}
-              title="Emissions by transport mode"
+              rows={periodModeRows}
+              title="Total CO₂e by transport mode"
+              metric="carbon"
             />
-          ) : null}
+          )}
 
           <section className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-forest/5 sm:p-8">
             <h2 className="text-lg font-semibold text-ink">
@@ -901,11 +973,6 @@ function TripDetailView({
           {sustainability.impact_text}
         </p>
       </section>
-
-      <ModeBreakdownChart
-        rows={sustainability.breakdown_by_mode ?? []}
-        title="Emissions by transport mode"
-      />
 
       <section className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-forest/5 sm:p-8">
         <h2 className="text-lg font-semibold text-ink">Travel legs</h2>

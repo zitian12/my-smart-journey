@@ -571,6 +571,9 @@ export function PlanningPage() {
   const [days, setDays] = useState(3);
   const [nights, setNights] = useState(2);
   const [hoursPerDay, setHoursPerDay] = useState(8);
+  const [daysDraft, setDaysDraft] = useState("3");
+  const [nightsDraft, setNightsDraft] = useState("2");
+  const [hoursDraft, setHoursDraft] = useState("8");
   const [preferredMode, setPreferredMode] = useState<PreferredMode>("driving");
   const [interests, setInterests] = useState<string[]>([]);
   const [categories, setCategories] = useState<DestinationCategory[]>([]);
@@ -613,6 +616,18 @@ export function PlanningPage() {
       setNights(Math.max(0, days - 1));
     }
   }, [days, nightsTouched]);
+
+  useEffect(() => {
+    setDaysDraft(String(days));
+  }, [days]);
+
+  useEffect(() => {
+    setNightsDraft(String(nights));
+  }, [nights]);
+
+  useEffect(() => {
+    setHoursDraft(String(hoursPerDay));
+  }, [hoursPerDay]);
 
   useEffect(() => {
     if (plannerMode !== "manual" || !isAuthenticated) {
@@ -800,6 +815,54 @@ export function PlanningPage() {
     setHoursPerDay(Math.max(1, Math.min(16, value || 1)));
   };
 
+  const onDaysDraftChange = (raw: string) => {
+    if (raw !== "" && !/^\d+$/.test(raw)) return;
+    setDaysDraft(raw);
+    if (raw === "") return;
+    onDaysChange(Number.parseInt(raw, 10));
+  };
+
+  const onNightsDraftChange = (raw: string) => {
+    if (raw !== "" && !/^\d+$/.test(raw)) return;
+    setNightsDraft(raw);
+    if (raw === "") return;
+    onNightsChange(Number.parseInt(raw, 10));
+  };
+
+  const onHoursDraftChange = (raw: string) => {
+    if (raw !== "" && !/^\d+$/.test(raw)) return;
+    setHoursDraft(raw);
+    if (raw === "") return;
+    onHoursPerDayChange(Number.parseInt(raw, 10));
+  };
+
+  const onDaysBlur = () => {
+    if (daysDraft === "") {
+      onDaysChange(days);
+      setDaysDraft(String(days));
+      return;
+    }
+    onDaysChange(Number.parseInt(daysDraft, 10));
+  };
+
+  const onNightsBlur = () => {
+    if (nightsDraft === "") {
+      onNightsChange(nights);
+      setNightsDraft(String(nights));
+      return;
+    }
+    onNightsChange(Number.parseInt(nightsDraft, 10));
+  };
+
+  const onHoursBlur = () => {
+    if (hoursDraft === "") {
+      onHoursPerDayChange(hoursPerDay);
+      setHoursDraft(String(hoursPerDay));
+      return;
+    }
+    onHoursPerDayChange(Number.parseInt(hoursDraft, 10));
+  };
+
   const onGenerate = async () => {
     setFormError(null);
     if (!start || !end) {
@@ -980,10 +1043,12 @@ export function PlanningPage() {
               <FieldShell>
                 <input
                   type="number"
+                  inputMode="numeric"
                   min={1}
                   max={30}
-                  value={days}
-                  onChange={(e) => onDaysChange(Number(e.target.value) || 1)}
+                  value={daysDraft}
+                  onChange={(e) => onDaysDraftChange(e.target.value)}
+                  onBlur={onDaysBlur}
                   className="w-full bg-transparent text-sm text-ink outline-none"
                 />
               </FieldShell>
@@ -993,10 +1058,12 @@ export function PlanningPage() {
               <FieldShell>
                 <input
                   type="number"
+                  inputMode="numeric"
                   min={0}
                   max={30}
-                  value={nights}
-                  onChange={(e) => onNightsChange(Number(e.target.value) || 0)}
+                  value={nightsDraft}
+                  onChange={(e) => onNightsDraftChange(e.target.value)}
+                  onBlur={onNightsBlur}
                   className="w-full bg-transparent text-sm text-ink outline-none"
                 />
               </FieldShell>
@@ -1009,12 +1076,12 @@ export function PlanningPage() {
               <FieldShell>
                 <input
                   type="number"
+                  inputMode="numeric"
                   min={1}
                   max={16}
-                  value={hoursPerDay}
-                  onChange={(e) =>
-                    onHoursPerDayChange(Number(e.target.value) || 1)
-                  }
+                  value={hoursDraft}
+                  onChange={(e) => onHoursDraftChange(e.target.value)}
+                  onBlur={onHoursBlur}
                   className="w-full bg-transparent text-sm text-ink outline-none"
                 />
               </FieldShell>

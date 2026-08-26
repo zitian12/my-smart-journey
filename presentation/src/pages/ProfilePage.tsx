@@ -8,7 +8,8 @@ import {
   type TextareaHTMLAttributes,
 } from "react";
 import { createPortal } from "react-dom";
-import { Link, Navigate, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { LoginModal } from "../components/LoginModal";
 import { useAuth } from "../context/AuthContext";
 import { getItinerary, listItineraries } from "../services/itineraryApi";
 import { mediaUrl } from "../utils/mediaUrl";
@@ -117,6 +118,7 @@ export function ProfilePage() {
   const { user, isAuthenticated, getAccessToken, updateUser, logout } = useAuth();
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [loginOpen, setLoginOpen] = useState(false);
 
   const [tab, setTab] = useState<SettingsTab>("general");
   const [fullName, setFullName] = useState("");
@@ -244,7 +246,40 @@ export function ProfilePage() {
   }, [isAuthenticated, getAccessToken]);
 
   if (!isAuthenticated || !user) {
-    return <Navigate to="/dashboard" replace />;
+    return (
+      <>
+        <div className="mx-auto max-w-xl animate-fade-up rounded-2xl bg-white p-8 text-center shadow-sm ring-1 ring-forest/5">
+          <h1 className="font-display text-2xl font-semibold text-forest">
+            Settings
+          </h1>
+          <p className="mt-2 text-sm text-stone">
+            Sign in to manage your profile, account, and preferences.
+          </p>
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+            <button
+              type="button"
+              onClick={() => setLoginOpen(true)}
+              className="rounded-xl bg-forest px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-leaf"
+            >
+              Sign in
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate("/dashboard")}
+              className="rounded-xl border border-leaf/30 px-4 py-2.5 text-sm font-medium text-forest transition hover:bg-leaf/5"
+            >
+              Back to dashboard
+            </button>
+          </div>
+        </div>
+        <LoginModal
+          open={loginOpen}
+          title="Sign in to My Smart Journey"
+          message="Use Google to manage your profile and sync settings across devices."
+          onClose={() => setLoginOpen(false)}
+        />
+      </>
+    );
   }
 
   const displayInitial = (fullName || user.name || "?").charAt(0).toUpperCase();

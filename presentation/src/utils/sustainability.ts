@@ -31,8 +31,12 @@ const EMISSION_FACTORS_KG_PER_KM: Record<string, number> = {
 
 const CANONICAL_MODE: Record<string, string> = {
   walking: "walking",
+  walk: "walking",
   foot: "walking",
+  pedestrian: "walking",
   cycling: "cycling",
+  bike: "cycling",
+  bicycle: "cycling",
   train: "train",
   lrt: "train",
   mrt: "train",
@@ -291,3 +295,129 @@ export function aggregateTripFootprints(
     has_transport_data: true,
   };
 }
+
+/** Display buckets for All-trips + Monthly mode charts. */
+export type MonthlyModeBucket = "driving" | "transit" | "walking";
+
+export type MonthlyModeBreakdownRow = {
+  mode: MonthlyModeBucket;
+  carbon_kg: number;
+  saved_kg: number;
+  distance_km: number;
+  share_percent: number;
+  trip_count: number;
+};
+
+const MONTHLY_BUCKET_ORDER: MonthlyModeBucket[] = [
+  "driving",
+  "transit",
+  "walking",
+];
+
+function toMonthlyBucket(mode: string): MonthlyModeBucket {
+  const key = normalizeMode(mode);
+  if (key === "walking" || key === "cycling") return "walking";
+  if (key === "transit" || key === "bus" || key === "train") return "transit";
+  // driving, motorcycle, ev, flight, etc. → Car bucket for monthly charts
+  return "driving";
+}
+
+/**
+ * Aggregate per-trip sustainability into Car / Public Transport / Walking
+ * for All trips period charts (All time / Monthly / Annual).
+ */
+export function aggregatePeriodModeBreakdown(
+  itineraries: Array<ItineraryGenerateResponse | null | undefined>,
+): MonthlyModeBreakdownRow[] {
+  const carbon = new Map<MonthlyModeBucket, number>([
+    ["driving", 0],
+    ["transit", 0],
+    ["walking", 0],
+  ]);
+  const distance = new Map<MonthlyModeBucket, number>([
+    ["driving", 0],
+    ["transit", 0],
+    ["walking", 0],
+  ]);
+  const saved = new Map<MonthlyModeBucket, number>([
+    ["driving", 0],
+    ["transit", 0],
+    ["walking", 0],
+  ]);
+  const tripsWithMode = new Map<MonthlyModeBucket, number>([
+    ["driving", 0],
+    ["transit", 0],
+    ["walking", 0],
+  ]);
+
+  for (const itinerary of itineraries) {
+    if (!itinerary) continue;
+    let summary = resolveSustainability(itinerary);
+    if (
+      (!summary.breakdown_by_mode || summary.breakdown_by_mode.length === 0) &&
+      (!summary.breakdown_by_leg || summary.breakdown_by_leg.length === 0) &&
+      itinerary.legs?.length
+    ) {
+      summary = evaluateSustainability(itinerary.legs);
+    }
+    if (!summary.has_transport_data) continue;
+
+    const present = new Set<MonthlyModeBucket>();
+    const rows =
+      summary.breakdown_by_mode?.length > 0
+        ? summary.breakdown_by_mode
+        : summary.breakdown_by_leg.map((leg) => ({
+            mode: leg.mode,
+            carbon_kg: leg.carbon_kg,
+            distance_km: leg.distance_km,
+            share_percent: 0,
+          }));
+
+    if (rows.length === 0) continue;
+    for (const row of rows) {
+      const bucket = toMonthlyBucket(row.mode);
+      present.add(bucket);
+      const carbonKg = Math.max(0, Number(row.carbon_kg) || 0);
+      const distanceKm = Math.max(0, Number(row.distance_km) || 0);
+      carbon.set(bucket, (carbon.get(bucket) || 0) + carbonKg);
+      distance.set(bucket, (distance.get(bucket) || 0) + distanceKm);
+      // Savings vs car baseline for the same distance (driving → 0)
+      const baselineForDistance =
+        distanceKm * EMISSION_FACTORS_KG_PER_KM[BASELINE_MODE];
+      const savedKg =
+        bucket === "driving"
+          ? 0
+          : Math.max(0, baselineForDistance - carbonKg);
+      saved.set(bucket, (saved.get(bucket) || 0) + savedKg);
+    }
+
+    for (const bucket of present) {
+      tripsWithMode.set(bucket, (tripsWithMode.get(bucket) || 0) + 1);
+    }
+  }
+
+  const totalCarbon = MONTHLY_BUCKET_ORDER.reduce(
+    (sum, mode) => sum + (carbon.get(mode) || 0),
+    0,
+  );
+
+  return MONTHLY_BUCKET_ORDER.map((mode) => {
+    const carbonKg = round3(carbon.get(mode) || 0);
+    const share =
+      totalCarbon > 0
+        ? round1((carbonKg / totalCarbon) * 100)
+        : 0;
+    return {
+      mode,
+      carbon_kg: carbonKg,
+      saved_kg: round3(saved.get(mode) || 0),
+      distance_km: round3(distance.get(mode) || 0),
+      share_percent: share,
+      trip_count: tripsWithMode.get(mode) || 0,
+    };
+  }).filter(
+    (row) =>
+      row.trip_count > 0 || row.carbon_kg > 0 || row.distance_km > 0,
+  );
+}
+
