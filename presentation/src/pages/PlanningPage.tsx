@@ -871,10 +871,6 @@ export function PlanningPage() {
       );
       return;
     }
-    if (start.name.trim().toLowerCase() === end.name.trim().toLowerCase()) {
-      setFormError("Start and end must be different addresses.");
-      return;
-    }
     if (nights !== days - 1 && nights !== days) {
       setFormError(`Nights must be ${days - 1} or ${days} for a ${days}-day trip.`);
       return;
@@ -1023,18 +1019,29 @@ export function PlanningPage() {
               label="Starting point"
               value={start}
               onChange={setStart}
-              excludeKey={end ? suggestionKey(end) : null}
+              excludeKey={null}
               recent={recent}
               placeholder="e.g. KL Sentral"
             />
-            <AddressPicker
-              label="Ending point"
-              value={end}
-              onChange={setEnd}
-              excludeKey={start ? suggestionKey(start) : null}
-              recent={recent}
-              placeholder="e.g. 12 Jalan Ampang, Kuala Lumpur"
-            />
+            <div className="space-y-2">
+              <AddressPicker
+                label="Ending point"
+                value={end}
+                onChange={setEnd}
+                excludeKey={null}
+                recent={recent}
+                placeholder="e.g. 12 Jalan Ampang, Kuala Lumpur"
+              />
+              {start ? (
+                <button
+                  type="button"
+                  onClick={() => setEnd({ ...start })}
+                  className="text-xs font-medium text-leaf hover:underline"
+                >
+                  Same as start
+                </button>
+              ) : null}
+            </div>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

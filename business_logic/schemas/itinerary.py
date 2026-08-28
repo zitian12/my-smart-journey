@@ -47,10 +47,6 @@ class ItineraryGenerateRequest(BaseModel):
             raise ValueError(
                 f"nights must be {self.days - 1} or {self.days} for a {self.days}-day trip"
             )
-        start_name = self.start.name.strip().lower()
-        end_name = self.end.name.strip().lower()
-        if start_name == end_name:
-            raise ValueError("Start and end must be different addresses.")
         return self
 
 

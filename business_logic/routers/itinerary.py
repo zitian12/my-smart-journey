@@ -6,7 +6,6 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from deps import get_current_user
 from integration.external_api import GoogleMapsClient
-from integration.external_api.geo import haversine_km
 from integration.repositories import DestinationCategoryRepository
 from schemas.itinerary import (
     FavouriteUpdateRequest,
@@ -32,7 +31,6 @@ router = APIRouter(tags=["itineraries"])
 _persistence = ItineraryPersistenceService()
 _shares = TripShareService()
 _maps = GoogleMapsClient()
-_MIN_START_END_KM = 0.2
 _ADDRESS_NOT_FOUND = (
     "Could not find that address in Malaysia. Try a fuller street or area name."
 )
@@ -118,15 +116,6 @@ async def generate_itinerary(body: ItineraryGenerateRequest) -> dict:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
-
-    if haversine_km(
-        (start["latitude"], start["longitude"]),
-        (end["latitude"], end["longitude"]),
-    ) < _MIN_START_END_KM:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Start and end are too close. Choose two different places.",
-        )
 
     if body.destinations:
         destinations = _mapped_user_destinations(body.destinations)
