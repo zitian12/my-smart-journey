@@ -81,13 +81,13 @@ export function Home() {
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-3">
               <Link
-                to="/dashboard/planning"
+                to="/planning"
                 className="inline-flex items-center justify-center rounded-xl bg-leaf px-7 py-3.5 text-base font-semibold text-white shadow-lg shadow-ink/30 transition duration-300 hover:-translate-y-0.5 hover:bg-forest hover:shadow-xl active:translate-y-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
               >
                 Start Planning
               </Link>
               <Link
-                to="/dashboard/destinations"
+                to="/destinations"
                 className="text-sm font-semibold text-white/85 underline-offset-4 transition hover:text-white hover:underline"
               >
                 Explore destinations
@@ -113,7 +113,7 @@ export function Home() {
           </div>
           {fromApi ? (
             <Link
-              to="/dashboard/destinations"
+              to="/destinations"
               className="text-sm font-semibold text-leaf transition hover:text-forest"
             >
               View all destinations →
@@ -161,7 +161,7 @@ export function Home() {
               return (
                 <Link
                   key={place.id}
-                  to={`/dashboard/destinations/${place.id}`}
+                  to={`/destinations/${place.id}`}
                   className={`${className} block`}
                   style={{ animationDelay: `${index * 60}ms` }}
                 >
@@ -204,7 +204,7 @@ export function Home() {
 
           <div className="mt-8 flex justify-center">
             <Link
-              to="/dashboard/destinations"
+              to="/destinations"
               className="inline-flex items-center justify-center rounded-xl bg-forest px-6 py-3 text-sm font-semibold text-white shadow-md transition duration-300 hover:-translate-y-0.5 hover:bg-leaf hover:shadow-lg active:translate-y-0"
             >
               Browse destinations

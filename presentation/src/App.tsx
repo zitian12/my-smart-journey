@@ -1,4 +1,11 @@
-import { BrowserRouter, Navigate, Route, Routes, useParams } from "react-router-dom";
+import {
+  BrowserRouter,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+  useParams,
+} from "react-router-dom";
 import { DashboardLayout } from "./components/DashboardLayout";
 import { Layout } from "./components/Layout";
 import { ConnectionsPage } from "./pages/ConnectionsPage";
@@ -13,11 +20,28 @@ import { MyTripsPage } from "./pages/MyTripsPage";
 import { PlanningPage } from "./pages/PlanningPage";
 import { ProfilePage } from "./pages/ProfilePage";
 
-function LegacyDestinationRedirect() {
-  const { id } = useParams();
+/** Preserve search (and state when needed) while rewriting /dashboard/* → flat paths. */
+function LegacyPathRedirect({ to }: { to: string }) {
+  const location = useLocation();
   return (
     <Navigate
-      to={id ? `/dashboard/destinations/${id}` : "/dashboard/destinations"}
+      to={{ pathname: to, search: location.search }}
+      state={location.state}
+      replace
+    />
+  );
+}
+
+function LegacyDestinationDetailRedirect() {
+  const { id } = useParams();
+  const location = useLocation();
+  return (
+    <Navigate
+      to={{
+        pathname: id ? `/destinations/${id}` : "/destinations",
+        search: location.search,
+      }}
+      state={location.state}
       replace
     />
   );
@@ -31,8 +55,8 @@ export default function App() {
           <Route index element={<Home />} />
         </Route>
 
-        <Route path="dashboard" element={<DashboardLayout />}>
-          <Route index element={<DashboardPage />} />
+        <Route element={<DashboardLayout />}>
+          <Route path="overview" element={<DashboardPage />} />
           <Route path="destinations" element={<DestinationsPage />} />
           <Route path="destinations/:id" element={<DestinationDetailPage />} />
           <Route path="planning" element={<PlanningPage />} />
@@ -42,10 +66,46 @@ export default function App() {
           <Route path="favourites" element={<FavouritesPage />} />
           <Route path="connections" element={<ConnectionsPage />} />
           <Route path="profile" element={<ProfilePage />} />
-        </Route>
 
-        <Route path="destinations" element={<Navigate to="/dashboard/destinations" replace />} />
-        <Route path="destinations/:id" element={<LegacyDestinationRedirect />} />
+          {/* Legacy /dashboard/* → flat paths */}
+          <Route path="dashboard" element={<LegacyPathRedirect to="/overview" />} />
+          <Route
+            path="dashboard/destinations"
+            element={<LegacyPathRedirect to="/destinations" />}
+          />
+          <Route
+            path="dashboard/destinations/:id"
+            element={<LegacyDestinationDetailRedirect />}
+          />
+          <Route
+            path="dashboard/planning"
+            element={<LegacyPathRedirect to="/planning" />}
+          />
+          <Route
+            path="dashboard/planning/result"
+            element={<LegacyPathRedirect to="/planning/result" />}
+          />
+          <Route
+            path="dashboard/eco-score"
+            element={<LegacyPathRedirect to="/eco-score" />}
+          />
+          <Route
+            path="dashboard/my-trips"
+            element={<LegacyPathRedirect to="/my-trips" />}
+          />
+          <Route
+            path="dashboard/favourites"
+            element={<LegacyPathRedirect to="/favourites" />}
+          />
+          <Route
+            path="dashboard/connections"
+            element={<LegacyPathRedirect to="/connections" />}
+          />
+          <Route
+            path="dashboard/profile"
+            element={<LegacyPathRedirect to="/profile" />}
+          />
+        </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

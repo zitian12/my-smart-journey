@@ -952,7 +952,7 @@ export function PlanningPage() {
       const nextRecent = pushRecent(pushRecent(loadRecent(), resolvedStart), resolvedEnd);
       localStorage.setItem(RECENT_KEY, JSON.stringify(nextRecent));
       setRecent(nextRecent);
-      navigate("/dashboard/planning/result", { state });
+      navigate("/planning/result", { state });
     } catch (err) {
       setFormError(
         err instanceof Error ? err.message : "Failed to generate itinerary",

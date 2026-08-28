@@ -68,7 +68,7 @@ export function Navbar() {
           <NavLink to="/" end className={navLinkClass}>
             Home
           </NavLink>
-          <NavLink to="/dashboard/destinations" className={navLinkClass}>
+          <NavLink to="/destinations" className={navLinkClass}>
             Destinations
           </NavLink>
         </nav>
@@ -77,7 +77,7 @@ export function Navbar() {
           {isAuthenticated && user ? (
             <>
               <NavLink
-                to="/dashboard"
+                to="/overview"
                 className="rounded-lg px-3 py-2 text-sm font-medium text-forest no-underline transition-colors hover:bg-leaf/5 sm:px-4"
               >
                 Dashboard
@@ -144,13 +144,13 @@ export function Navbar() {
               Home
             </NavLink>
             <NavLink
-              to="/dashboard/destinations"
+              to="/destinations"
               className={mobileNavLinkClass}
             >
               Destinations
             </NavLink>
             {isAuthenticated ? (
-              <NavLink to="/dashboard" className={mobileNavLinkClass}>
+              <NavLink to="/overview" className={mobileNavLinkClass}>
                 Dashboard
               </NavLink>
             ) : null}
@@ -207,7 +207,7 @@ export function Navbar() {
         title="Sign in to My Smart Journey"
         message="Use Google to sync trips, friends, and eco progress across devices."
         onClose={() => setLoginOpen(false)}
-        onLoggedIn={() => navigate("/dashboard", { replace: true })}
+        onLoggedIn={() => navigate("/overview", { replace: true })}
       />
     </header>
   );

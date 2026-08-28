@@ -11,31 +11,31 @@ const quickActions = [
     id: "planning",
     title: "Planning",
     description: "Build a sustainable itinerary.",
-    to: "/dashboard/planning",
+    to: "/planning",
   },
   {
     id: "eco-score",
     title: "Eco Score",
     description: "Track trip carbon impact.",
-    to: "/dashboard/eco-score",
+    to: "/eco-score",
   },
   {
     id: "my-trips",
     title: "My Trips",
     description: "Manage saved itineraries.",
-    to: "/dashboard/my-trips",
+    to: "/my-trips",
   },
   {
     id: "friends",
     title: "Friends",
     description: "Connect and share trips.",
-    to: "/dashboard/connections",
+    to: "/connections",
   },
   {
     id: "favourites",
     title: "Favourites",
     description: "Saved destinations.",
-    to: "/dashboard/favourites",
+    to: "/favourites",
   },
 ] as const;
 
@@ -230,7 +230,7 @@ export function DashboardPage() {
             }),
       };
       sessionStorage.setItem(ITINERARY_RESULT_STORAGE_KEY, JSON.stringify(state));
-      navigate("/dashboard/planning/result", { state });
+      navigate("/planning/result", { state });
     } catch (err) {
       setTripsError(err instanceof Error ? err.message : "Failed to open trip");
     } finally {
@@ -256,7 +256,7 @@ export function DashboardPage() {
           <div className="flex flex-wrap items-center gap-3 pt-1">
             <button
               type="button"
-              onClick={() => navigate("/dashboard/planning")}
+              onClick={() => navigate("/planning")}
               className="rounded-xl bg-leaf px-5 py-3 text-sm font-semibold text-white shadow-md shadow-forest/15 transition duration-300 hover:-translate-y-0.5 hover:bg-forest hover:shadow-lg active:translate-y-0"
             >
               {isAuthenticated && trips.length > 0
@@ -266,7 +266,7 @@ export function DashboardPage() {
             {isAuthenticated && user ? (
               <button
                 type="button"
-                onClick={() => navigate("/dashboard/profile")}
+                onClick={() => navigate("/profile")}
                 className="inline-flex items-center gap-2 rounded-full border border-forest/10 bg-white/90 py-1.5 pl-1.5 pr-3 text-sm font-medium text-forest shadow-sm transition hover:bg-white"
               >
                 <UserAvatar
@@ -296,7 +296,7 @@ export function DashboardPage() {
             {isAuthenticated ? (
               <button
                 type="button"
-                onClick={() => navigate("/dashboard/my-trips")}
+                onClick={() => navigate("/my-trips")}
                 className="text-xs font-semibold uppercase tracking-wider text-leaf transition hover:text-forest"
               >
                 View all
@@ -315,7 +315,7 @@ export function DashboardPage() {
               <p>No itineraries yet. Plan a trip to see it on your hub.</p>
               <button
                 type="button"
-                onClick={() => navigate("/dashboard/planning")}
+                onClick={() => navigate("/planning")}
                 className="mt-3 text-sm font-semibold text-leaf hover:text-forest"
               >
                 Go to Planning →
@@ -423,7 +423,7 @@ export function DashboardPage() {
             </div>
             <button
               type="button"
-              onClick={() => navigate("/dashboard/eco-score")}
+              onClick={() => navigate("/eco-score")}
               className="rounded-xl border border-leaf/35 bg-white px-3.5 py-2 text-sm font-semibold text-forest transition hover:border-leaf/50 hover:bg-leaf/5"
             >
               View Eco Score

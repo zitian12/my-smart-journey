@@ -53,7 +53,7 @@ function FavouriteCard({
           onClick={() => onUnfavourite(destination.id)}
           className="absolute right-3 top-3 z-10 bg-white/85 shadow-sm backdrop-blur-sm"
         />
-        <Link to={`/dashboard/destinations/${destination.id}`} className="block h-full">
+        <Link to={`/destinations/${destination.id}`} className="block h-full">
           {images.length > 0 ? (
             <DestinationImage
               images={images}
@@ -78,7 +78,7 @@ function FavouriteCard({
       <div className="space-y-3 p-4">
         <div>
           <Link
-            to={`/dashboard/destinations/${destination.id}`}
+            to={`/destinations/${destination.id}`}
             className="text-lg font-semibold text-ink no-underline hover:text-forest"
           >
             {destination.destination_name}
@@ -466,7 +466,7 @@ export function FavouritesPage() {
               </button>
               {destinations.length > 0 ? (
                 <Link
-                  to={`/dashboard/planning?mode=manual&folder=${selectedFolder.id}`}
+                  to={`/planning?mode=manual&folder=${selectedFolder.id}`}
                   className="rounded-lg bg-forest px-3 py-2 text-sm font-medium text-white no-underline transition-colors hover:bg-leaf"
                 >
                   Plan from this folder

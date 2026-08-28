@@ -528,7 +528,7 @@ export function EcoScorePage() {
           </button>
           <button
             type="button"
-            onClick={() => navigate("/dashboard/planning")}
+            onClick={() => navigate("/planning")}
             className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600"
           >
             <IconSparkle />
@@ -650,7 +650,7 @@ export function EcoScorePage() {
           periodModeLoading={periodModeLoading}
           isAuthenticated={isAuthenticated}
           onPickTrip={(id) => onSelect(id)}
-          onPlan={() => navigate("/dashboard/planning")}
+          onPlan={() => navigate("/planning")}
         />
       ) : detail && detailSustainability ? (
         <TripDetailView
@@ -660,7 +660,7 @@ export function EcoScorePage() {
           }
           subtitle={`${detail.itinerary.days} day${detail.itinerary.days === 1 ? "" : "s"}`}
           sustainability={detailSustainability}
-          onViewItinerary={() => navigate("/dashboard/planning/result")}
+          onViewItinerary={() => navigate("/planning/result")}
         />
       ) : (
         <p className="rounded-2xl bg-white p-8 text-center text-sm text-stone ring-1 ring-forest/5 print:hidden">

@@ -53,7 +53,7 @@ function PlaceCard({
         className="absolute right-3 top-3 z-10 bg-white/85 shadow-sm backdrop-blur-sm"
       />
       <Link
-        to={`/dashboard/destinations/${destination.id}`}
+        to={`/destinations/${destination.id}`}
         className="block focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-leaf"
       >
         <article>

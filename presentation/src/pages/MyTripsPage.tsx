@@ -496,7 +496,7 @@ export function MyTripsPage() {
             }),
       };
       sessionStorage.setItem(ITINERARY_RESULT_STORAGE_KEY, JSON.stringify(state));
-      navigate("/dashboard/planning/result", { state });
+      navigate("/planning/result", { state });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to open trip");
     } finally {
@@ -723,7 +723,7 @@ export function MyTripsPage() {
         </p>
         <button
           type="button"
-          onClick={() => navigate("/dashboard/planning")}
+          onClick={() => navigate("/planning")}
           className="mt-6 inline-flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600"
         >
           <IconSparkle />
@@ -744,7 +744,7 @@ export function MyTripsPage() {
         </div>
         <button
           type="button"
-          onClick={() => navigate("/dashboard/planning")}
+          onClick={() => navigate("/planning")}
           className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600"
         >
           <IconSparkle />
@@ -1034,7 +1034,7 @@ export function MyTripsPage() {
                 }
                 onOpen={(item) => void onOpen(item)}
                 onViewEcoScore={(item) =>
-                  navigate(`/dashboard/eco-score?trip=${item.id}`)
+                  navigate(`/eco-score?trip=${item.id}`)
                 }
                 onToggleFavourite={(item) => void onToggleFavourite(item)}
                 onRename={openRename}

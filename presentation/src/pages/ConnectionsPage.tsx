@@ -478,7 +478,7 @@ export function ConnectionsPage() {
             : undefined,
       };
       sessionStorage.setItem(ITINERARY_RESULT_STORAGE_KEY, JSON.stringify(state));
-      navigate("/dashboard/planning/result", { state });
+      navigate("/planning/result", { state });
     } catch (err) {
       setPanelError(err instanceof Error ? err.message : "Failed to open trip");
     } finally {
@@ -670,7 +670,7 @@ export function ConnectionsPage() {
           : undefined,
       };
       sessionStorage.setItem(ITINERARY_RESULT_STORAGE_KEY, JSON.stringify(state));
-      navigate("/dashboard/planning/result", { state });
+      navigate("/planning/result", { state });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to join trip");
     }
@@ -687,7 +687,7 @@ export function ConnectionsPage() {
         readOnly: Boolean(detail.is_read_only),
       };
       sessionStorage.setItem(ITINERARY_RESULT_STORAGE_KEY, JSON.stringify(state));
-      navigate("/dashboard/planning/result", { state });
+      navigate("/planning/result", { state });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to open trip");
     }
@@ -714,7 +714,7 @@ export function ConnectionsPage() {
         </p>
         <button
           type="button"
-          onClick={() => navigate("/dashboard")}
+          onClick={() => navigate("/overview")}
           className="mt-6 rounded-xl bg-forest px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-leaf"
         >
           Back to dashboard

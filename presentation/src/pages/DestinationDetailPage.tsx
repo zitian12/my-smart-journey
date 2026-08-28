@@ -133,7 +133,7 @@ export function DestinationDetailPage() {
         <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700 ring-1 ring-red-100">
           {error ?? "Destination not found"}
         </p>
-        <Link to="/dashboard/destinations" className="text-sm font-medium text-leaf hover:underline">
+        <Link to="/destinations" className="text-sm font-medium text-leaf hover:underline">
           Back to destinations
         </Link>
       </div>
@@ -149,7 +149,7 @@ export function DestinationDetailPage() {
     <div className="animate-fade-up space-y-10">
       <div>
         <Link
-          to="/dashboard/destinations"
+          to="/destinations"
           className="text-sm font-medium text-leaf hover:underline"
         >
           ← Back to destinations

@@ -763,7 +763,7 @@ export function ItineraryResultPage() {
           Generate a plan from the Planning page to see your day-by-day route.
         </p>
         <Link
-          to="/dashboard/planning"
+          to="/planning"
           className="mt-6 inline-flex rounded-xl bg-forest px-5 py-2.5 text-sm font-semibold text-white hover:bg-leaf"
         >
           Back to planning
@@ -823,7 +823,7 @@ export function ItineraryResultPage() {
               Trip saved.{" "}
               <button
                 type="button"
-                onClick={() => navigate("/dashboard/my-trips")}
+                onClick={() => navigate("/my-trips")}
                 className="font-semibold underline underline-offset-2"
               >
                 View My Trips
@@ -845,7 +845,7 @@ export function ItineraryResultPage() {
           {sustainability ? (
             <button
               type="button"
-              onClick={() => navigate("/dashboard/eco-score")}
+              onClick={() => navigate("/eco-score")}
               className="rounded-xl bg-leaf px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-forest"
             >
               Eco Score {sustainability.score.toFixed(0)} ·{" "}
@@ -872,7 +872,7 @@ export function ItineraryResultPage() {
           )}
           <button
             type="button"
-            onClick={() => navigate(readOnly ? "/dashboard/my-trips" : "/dashboard/planning")}
+            onClick={() => navigate(readOnly ? "/my-trips" : "/planning")}
             className="rounded-xl bg-forest px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-leaf"
           >
             {readOnly ? "Back to My Trips" : "Plan again"}
@@ -986,7 +986,7 @@ export function ItineraryResultPage() {
         {sustainability ? (
           <button
             type="button"
-            onClick={() => navigate("/dashboard/eco-score")}
+            onClick={() => navigate("/eco-score")}
             className="rounded-2xl bg-white px-4 py-4 text-left shadow-sm ring-1 ring-forest/5 transition hover:ring-leaf/30 print:hidden"
           >
             <p className="text-xs font-medium uppercase tracking-wide text-stone">

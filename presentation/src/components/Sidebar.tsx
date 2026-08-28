@@ -8,14 +8,14 @@ import { UserAvatar } from "./UserAvatar";
 type MenuItem = { id: string; label: string; to: string };
 
 const menuItems: MenuItem[] = [
-  { id: "overview", label: "Overview", to: "/dashboard" },
-  { id: "destinations", label: "Destinations", to: "/dashboard/destinations" },
-  { id: "planning", label: "Planning", to: "/dashboard/planning" },
-  { id: "eco-score", label: "Eco Score", to: "/dashboard/eco-score" },
-  { id: "my-trips", label: "My Trips", to: "/dashboard/my-trips" },
-  { id: "favourites", label: "Favourites", to: "/dashboard/favourites" },
-  { id: "connections", label: "Friends", to: "/dashboard/connections" },
-  { id: "profile", label: "Settings", to: "/dashboard/profile" },
+  { id: "overview", label: "Overview", to: "/overview" },
+  { id: "destinations", label: "Destinations", to: "/destinations" },
+  { id: "planning", label: "Planning", to: "/planning" },
+  { id: "eco-score", label: "Eco Score", to: "/eco-score" },
+  { id: "my-trips", label: "My Trips", to: "/my-trips" },
+  { id: "favourites", label: "Favourites", to: "/favourites" },
+  { id: "connections", label: "Friends", to: "/connections" },
+  { id: "profile", label: "Settings", to: "/profile" },
 ];
 
 type SidebarProps = {
@@ -64,7 +64,7 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
           <NavLink
             key={item.id}
             to={item.to}
-            end={item.to === "/dashboard"}
+            end={item.to === "/overview"}
             onClick={onClose}
             className={({ isActive }) =>
               [
@@ -94,7 +94,7 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
         {isAuthenticated && user ? (
           <div className="space-y-3">
             <NavLink
-              to="/dashboard/profile"
+              to="/profile"
               onClick={onClose}
               className="flex items-center gap-3 rounded-lg p-1 no-underline transition-colors hover:bg-mist"
             >
@@ -136,7 +136,7 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
         onClose={() => setLoginOpen(false)}
         onLoggedIn={() => {
           onClose();
-          navigate("/dashboard", { replace: true });
+          navigate("/overview", { replace: true });
         }}
       />
     </aside>

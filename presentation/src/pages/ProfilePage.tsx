@@ -265,7 +265,7 @@ export function ProfilePage() {
             </button>
             <button
               type="button"
-              onClick={() => navigate("/dashboard")}
+              onClick={() => navigate("/overview")}
               className="rounded-xl border border-leaf/30 px-4 py-2.5 text-sm font-medium text-forest transition hover:bg-leaf/5"
             >
               Back to dashboard
@@ -631,7 +631,7 @@ export function ProfilePage() {
                 {isSaving ? "Saving…" : "Save changes"}
               </button>
               <Link
-                to="/dashboard"
+                to="/overview"
                 className="rounded-xl border border-leaf/25 px-5 py-2.5 text-sm font-medium text-forest no-underline transition hover:bg-leaf/5"
               >
                 Back to dashboard
