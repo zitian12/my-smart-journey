@@ -23,7 +23,10 @@ class ItineraryRepository:
         """Create indexes for the itineraries collection."""
         await self._collection.create_index([("user_id", 1), ("created_at", -1)])
         await self._collection.create_index("user_id")
-        logger.info("Ensured indexes on itineraries (user_id, user_id+created_at)")
+        await self._collection.create_index("created_at")
+        logger.info(
+            "Ensured indexes on itineraries (user_id, user_id+created_at, created_at)"
+        )
 
     async def create(self, itinerary: SavedItinerary) -> dict:
         """Insert a saved itinerary and return the serialized document."""
@@ -52,6 +55,42 @@ class ItineraryRepository:
         )
         documents = await cursor.to_list(length=500)
         return [self._serialize(doc) for doc in documents]
+
+    async def list_created_between(
+        self,
+        start: datetime,
+        end: datetime,
+    ) -> list[dict]:
+        """Return lean trip rows saved in [start, end] for leaderboard aggregation."""
+        cursor = self._collection.find(
+            {"created_at": {"$gte": start, "$lte": end}},
+            {
+                "user_id": 1,
+                "eco_score": 1,
+                "created_at": 1,
+                "itinerary.sustainability.emissions_reduced_kg": 1,
+            },
+        )
+        documents = await cursor.to_list(length=5000)
+        return [self._serialize_leaderboard_row(doc) for doc in documents]
+
+    @staticmethod
+    def _serialize_leaderboard_row(document: dict) -> dict:
+        itinerary = document.get("itinerary") or {}
+        sustainability = itinerary.get("sustainability") or {}
+        try:
+            carbon_saved = float(sustainability.get("emissions_reduced_kg") or 0)
+        except (TypeError, ValueError):
+            carbon_saved = 0.0
+        try:
+            eco_score = int(document.get("eco_score") or 0)
+        except (TypeError, ValueError):
+            eco_score = 0
+        return {
+            "user_id": str(document.get("user_id") or ""),
+            "eco_score": eco_score,
+            "emissions_reduced_kg": carbon_saved,
+        }
 
     async def get_by_id(self, itinerary_id: str) -> dict | None:
         """Return a saved itinerary by id, or None."""

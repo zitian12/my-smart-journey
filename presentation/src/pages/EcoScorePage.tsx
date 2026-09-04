@@ -3,6 +3,7 @@
  * - Select itinerary: All trips or a single saved trip
  * - Export PDF (browser print → Save as PDF)
  * - Monthly / annual history filter + trip counts (All trips)
+ * - All-travellers leaderboard (day / week / month / year)
  *
  * Place at: presentation/src/pages/EcoScorePage.tsx
  *
@@ -14,7 +15,15 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ModeBreakdownChart } from "../components/ModeBreakdownChart";
 import type { ModeBreakdownRow } from "../components/ModeBreakdownChart";
+import { UserAvatar } from "../components/UserAvatar";
 import { useAuth } from "../context/AuthContext";
+import {
+  fetchLeaderboard,
+  EcoScoreApiError,
+  type LeaderboardEntry,
+  type LeaderboardPeriod,
+  type LeaderboardResponse,
+} from "../services/ecoScoreApi";
 import {
   getItinerary,
   ItineraryApiError,
@@ -44,12 +53,38 @@ const ALL = "all";
 /** History scope for All-trips dashboard (UC 5.2 monthly/annual). */
 type HistoryScope = "all" | "month" | "year";
 
+type DashboardView = "mine" | "leaderboard";
+
+const LEADERBOARD_PERIODS: { id: LeaderboardPeriod; label: string }[] = [
+  { id: "day", label: "Day" },
+  { id: "week", label: "Week" },
+  { id: "month", label: "Month" },
+  { id: "year", label: "Year" },
+];
+
 function persistResult(state: ItineraryResultState) {
   sessionStorage.setItem(ITINERARY_RESULT_STORAGE_KEY, JSON.stringify(state));
 }
 
 function formatKg(value: number): string {
   return `${value.toFixed(2)} kg CO₂e`;
+}
+
+function formatPeriodRange(startIso: string, endIso: string): string {
+  const start = new Date(startIso);
+  const end = new Date(endIso);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    return "";
+  }
+  const opts: Intl.DateTimeFormatOptions = {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  };
+  return `${start.toLocaleDateString("en-MY", opts)} – ${end.toLocaleDateString(
+    "en-MY",
+    opts,
+  )}`;
 }
 
 function ratingClasses(rating: string): string {
@@ -230,6 +265,15 @@ export function EcoScorePage() {
     !tripParam || tripParam === ALL || tripParam === "current"
       ? ALL
       : tripParam;
+
+  const [dashboardView, setDashboardView] = useState<DashboardView>("mine");
+  const [leaderboardPeriod, setLeaderboardPeriod] =
+    useState<LeaderboardPeriod>("week");
+  const [leaderboard, setLeaderboard] = useState<LeaderboardResponse | null>(
+    null,
+  );
+  const [leaderboardLoading, setLeaderboardLoading] = useState(false);
+  const [leaderboardError, setLeaderboardError] = useState<string | null>(null);
 
   const [trips, setTrips] = useState<SavedItinerarySummary[]>([]);
   const [detail, setDetail] = useState<{
@@ -440,6 +484,59 @@ export function EcoScorePage() {
     };
   }, [selected, filteredTrips, getAccessToken]);
 
+  useEffect(() => {
+    if (dashboardView !== "leaderboard") {
+      return;
+    }
+    if (!isAuthenticated) {
+      setLeaderboard(null);
+      setLeaderboardLoading(false);
+      setLeaderboardError(null);
+      return;
+    }
+
+    const token = getAccessToken();
+    if (!token) {
+      setLeaderboard(null);
+      setLeaderboardLoading(false);
+      setLeaderboardError("Please sign in to view the leaderboard.");
+      return;
+    }
+
+    let cancelled = false;
+    setLeaderboardLoading(true);
+    setLeaderboardError(null);
+    void fetchLeaderboard(token, leaderboardPeriod)
+      .then((data) => {
+        if (!cancelled) setLeaderboard(data);
+      })
+      .catch(async (err: unknown) => {
+        if (cancelled) return;
+        setLeaderboard(null);
+        if (err instanceof EcoScoreApiError && err.status === 401) {
+          setLeaderboardError(null);
+          await logout();
+          return;
+        }
+        setLeaderboardError(
+          err instanceof Error ? err.message : "Failed to load leaderboard",
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setLeaderboardLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    dashboardView,
+    leaderboardPeriod,
+    isAuthenticated,
+    getAccessToken,
+    logout,
+  ]);
+
   const periodModeRows: ModeBreakdownRow[] = useMemo(
     () => aggregatePeriodModeBreakdown(periodItineraries),
     [periodItineraries],
@@ -482,6 +579,7 @@ export function EcoScorePage() {
   const loading = listLoading || (selected !== ALL && detailLoading);
 
   const canExportPdf =
+    dashboardView === "mine" &&
     !loading &&
     !error &&
     ((selected === ALL &&
@@ -512,6 +610,7 @@ export function EcoScorePage() {
           <p className="mt-1 text-sm text-stone">{todayLabel}</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {dashboardView === "mine" ? (
           <button
             type="button"
             onClick={handleExportPdf}
@@ -526,6 +625,7 @@ export function EcoScorePage() {
             <IconPdf />
             Export PDF
           </button>
+          ) : null}
           <button
             type="button"
             onClick={() => navigate("/planning")}
@@ -537,6 +637,43 @@ export function EcoScorePage() {
         </div>
       </header>
 
+      <div
+        className="flex flex-wrap gap-2 print:hidden"
+        data-eco-print-hide
+        role="tablist"
+        aria-label="Eco Score views"
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={dashboardView === "mine"}
+          onClick={() => setDashboardView("mine")}
+          className={[
+            "rounded-xl px-4 py-2 text-sm font-medium transition",
+            dashboardView === "mine"
+              ? "bg-forest text-white"
+              : "bg-white text-forest ring-1 ring-forest/15 hover:bg-mist",
+          ].join(" ")}
+        >
+          My Eco Score
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={dashboardView === "leaderboard"}
+          onClick={() => setDashboardView("leaderboard")}
+          className={[
+            "rounded-xl px-4 py-2 text-sm font-medium transition",
+            dashboardView === "leaderboard"
+              ? "bg-forest text-white"
+              : "bg-white text-forest ring-1 ring-forest/15 hover:bg-mist",
+          ].join(" ")}
+        >
+          Leaderboard
+        </button>
+      </div>
+
+      {dashboardView === "mine" ? (
       <div
         className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end print:hidden"
         data-eco-print-hide
@@ -628,7 +765,44 @@ export function EcoScorePage() {
           </>
         ) : null}
       </div>
+      ) : (
+        <div
+          className="flex flex-wrap gap-2 print:hidden"
+          data-eco-print-hide
+          role="tablist"
+          aria-label="Leaderboard period"
+        >
+          {LEADERBOARD_PERIODS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              aria-selected={leaderboardPeriod === item.id}
+              onClick={() => setLeaderboardPeriod(item.id)}
+              className={[
+                "rounded-xl px-4 py-2 text-sm font-medium transition",
+                leaderboardPeriod === item.id
+                  ? "bg-leaf/15 text-forest ring-1 ring-leaf/30"
+                  : "bg-white text-stone ring-1 ring-forest/10 hover:bg-mist",
+              ].join(" ")}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
 
+      {dashboardView === "leaderboard" ? (
+        <LeaderboardView
+          isAuthenticated={isAuthenticated}
+          loading={leaderboardLoading}
+          error={leaderboardError}
+          data={leaderboard}
+          period={leaderboardPeriod}
+          onPlan={() => navigate("/planning")}
+        />
+      ) : (
+        <>
       {error ? (
         <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700 print:hidden">
           {error}
@@ -667,7 +841,153 @@ export function EcoScorePage() {
           Choose an itinerary to see its sustainability score.
         </p>
       )}
+        </>
+      )}
     </div>
+  );
+}
+
+function periodHeading(period: LeaderboardPeriod): string {
+  if (period === "day") return "Today";
+  if (period === "week") return "This week";
+  if (period === "month") return "This month";
+  return "This year";
+}
+
+function rankBadgeClass(rank: number): string {
+  if (rank === 1) return "bg-amber-500 text-white";
+  if (rank === 2) return "bg-stone/80 text-white";
+  if (rank === 3) return "bg-amber-800 text-white";
+  return "bg-mist text-forest";
+}
+
+function LeaderboardView({
+  isAuthenticated,
+  loading,
+  error,
+  data,
+  period,
+  onPlan,
+}: {
+  isAuthenticated: boolean;
+  loading: boolean;
+  error: string | null;
+  data: LeaderboardResponse | null;
+  period: LeaderboardPeriod;
+  onPlan: () => void;
+}) {
+  if (!isAuthenticated) {
+    return (
+      <div className="rounded-2xl bg-white p-8 text-center shadow-sm ring-1 ring-forest/5 print:hidden">
+        <h2 className="font-display text-2xl font-semibold text-forest">
+          Sign in to see the leaderboard
+        </h2>
+        <p className="mt-2 text-sm text-stone">
+          Rankings include every traveller who saved a trip in this period.
+          Sign in from the sidebar to view them.
+        </p>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <p className="rounded-2xl bg-white p-8 text-center text-sm text-stone ring-1 ring-forest/5 print:hidden">
+        Loading leaderboard…
+      </p>
+    );
+  }
+
+  if (error) {
+    return (
+      <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700 print:hidden">
+        {error}
+      </p>
+    );
+  }
+
+  const entries = data?.entries ?? [];
+  const rangeLabel =
+    data?.period_start && data.period_end
+      ? formatPeriodRange(data.period_start, data.period_end)
+      : "";
+
+  return (
+    <section className="print:hidden rounded-2xl bg-white p-6 shadow-sm ring-1 ring-forest/5 sm:p-8">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="font-display text-2xl font-semibold text-forest">
+            All travellers · {periodHeading(period)}
+          </h2>
+          <p className="mt-1 text-sm text-stone">
+            Ranked by carbon saved, then average Eco Score.
+            {rangeLabel ? ` ${rangeLabel}.` : ""}
+          </p>
+        </div>
+        <p className="text-sm text-stone">
+          {entries.length} traveller{entries.length === 1 ? "" : "s"}
+        </p>
+      </div>
+
+      {entries.length === 0 ? (
+        <div className="mt-8 text-center">
+          <p className="text-sm text-stone">
+            No saved trips in this period yet. Save an itinerary to appear on
+            the board.
+          </p>
+          <button
+            type="button"
+            onClick={onPlan}
+            className="mt-6 rounded-xl bg-forest px-5 py-2.5 text-sm font-semibold text-white hover:bg-leaf"
+          >
+            Plan a trip
+          </button>
+        </div>
+      ) : (
+        <ol className="mt-6 divide-y divide-forest/10">
+          {entries.map((entry: LeaderboardEntry) => (
+            <li
+              key={entry.user_id}
+              className={[
+                "flex items-center gap-3 py-3 sm:gap-4",
+                entry.is_current_user ? "rounded-xl bg-leaf/10 px-3 sm:px-4" : "",
+              ].join(" ")}
+            >
+              <span
+                className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${rankBadgeClass(entry.rank)}`}
+              >
+                {entry.rank}
+              </span>
+              <UserAvatar
+                picture={entry.profile_picture}
+                name={entry.display_name}
+                className="h-10 w-10 text-sm"
+              />
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-medium text-ink">
+                  {entry.display_name}
+                  {entry.is_current_user ? (
+                    <span className="ml-2 text-xs font-semibold uppercase tracking-wide text-leaf">
+                      You
+                    </span>
+                  ) : null}
+                </p>
+                <p className="text-xs text-stone">
+                  {entry.trip_count} trip{entry.trip_count === 1 ? "" : "s"} ·
+                  avg score {entry.average_score.toFixed(0)}
+                </p>
+              </div>
+              <p className="shrink-0 text-right text-sm font-semibold text-forest">
+                {formatKg(entry.carbon_saved_kg)}
+                <span className="block text-xs font-medium text-stone">
+                  saved
+                </span>
+              </p>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
   );
 }
 
