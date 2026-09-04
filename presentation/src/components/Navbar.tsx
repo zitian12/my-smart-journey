@@ -4,14 +4,6 @@ import { useAuth } from "../context/AuthContext";
 import { LoginModal } from "./LoginModal";
 import { UserAvatar } from "./UserAvatar";
 
-const navLinkClass = ({ isActive }: { isActive: boolean }) =>
-  [
-    "rounded-lg px-3 py-2 text-sm font-medium transition-colors no-underline",
-    isActive
-      ? "bg-leaf/10 text-forest"
-      : "text-stone hover:bg-leaf/5 hover:text-forest",
-  ].join(" ");
-
 const mobileNavLinkClass = ({ isActive }: { isActive: boolean }) =>
   [
     "block rounded-lg px-3 py-2.5 text-sm font-medium no-underline transition-colors",
@@ -60,18 +52,6 @@ export function Navbar() {
             Sustainable travel
           </span>
         </NavLink>
-
-        <nav
-          className="hidden items-center gap-1 md:flex md:gap-2"
-          aria-label="Main navigation"
-        >
-          <NavLink to="/" end className={navLinkClass}>
-            Home
-          </NavLink>
-          <NavLink to="/destinations" className={navLinkClass}>
-            Destinations
-          </NavLink>
-        </nav>
 
         <div className="hidden shrink-0 items-center gap-2 md:flex md:gap-3">
           {isAuthenticated && user ? (
@@ -139,24 +119,22 @@ export function Navbar() {
           id="mobile-main-nav"
           className="border-t border-leaf/15 bg-white px-4 py-3 md:hidden"
         >
-          <nav className="flex flex-col gap-1" aria-label="Mobile navigation">
-            <NavLink to="/" end className={mobileNavLinkClass}>
-              Home
-            </NavLink>
-            <NavLink
-              to="/destinations"
-              className={mobileNavLinkClass}
-            >
-              Destinations
-            </NavLink>
-            {isAuthenticated ? (
+          {isAuthenticated ? (
+            <nav className="flex flex-col gap-1" aria-label="Mobile navigation">
               <NavLink to="/overview" className={mobileNavLinkClass}>
                 Dashboard
               </NavLink>
-            ) : null}
-          </nav>
+            </nav>
+          ) : null}
 
-          <div className="mt-3 flex flex-col gap-2 border-t border-leaf/10 pt-3">
+          <div
+            className={[
+              "flex flex-col gap-2",
+              isAuthenticated
+                ? "mt-3 border-t border-leaf/10 pt-3"
+                : "",
+            ].join(" ")}
+          >
             {isAuthenticated && user ? (
               <>
                 <div className="flex items-center gap-3 px-1">
