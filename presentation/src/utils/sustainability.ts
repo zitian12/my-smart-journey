@@ -9,8 +9,12 @@ const BASELINE_MODE = "driving";
 
 const EMISSION_FACTORS_KG_PER_KM: Record<string, number> = {
   walking: 0.0,
+  walk: 0.0,
   foot: 0.0,
+  pedestrian: 0.0,
   cycling: 0.0,
+  bike: 0.0,
+  bicycle: 0.0,
   train: 0.041,
   lrt: 0.041,
   mrt: 0.041,
@@ -82,14 +86,19 @@ export function ratingLabel(rating: string): string {
   return "Low";
 }
 
+const ZERO_TAILPIPE_MODES = new Set(["walking", "cycling"]);
+
 function normalizeMode(mode: string | null | undefined): string {
   const key = (mode || BASELINE_MODE).trim().toLowerCase();
   return CANONICAL_MODE[key] ?? BASELINE_MODE;
 }
 
 function emissionFactor(mode: string | null | undefined): number {
-  const key = (mode || BASELINE_MODE).trim().toLowerCase();
-  return EMISSION_FACTORS_KG_PER_KM[key] ?? EMISSION_FACTORS_KG_PER_KM[BASELINE_MODE];
+  const canonical = normalizeMode(mode);
+  return (
+    EMISSION_FACTORS_KG_PER_KM[canonical] ??
+    EMISSION_FACTORS_KG_PER_KM[BASELINE_MODE]
+  );
 }
 
 function round3(value: number): number {
@@ -150,8 +159,9 @@ export function evaluateSustainability(
     const { mode: rawMode, distanceKm: distance, carbonKg: optionCarbon } =
       selectedMetrics(leg);
     const mode = normalizeMode(rawMode);
-    const carbon =
-      optionCarbon != null
+    const carbon = ZERO_TAILPIPE_MODES.has(mode)
+      ? 0
+      : optionCarbon != null
         ? round3(optionCarbon)
         : round3(distance * emissionFactor(rawMode));
     const baselineLeg = round3(distance * EMISSION_FACTORS_KG_PER_KM[BASELINE_MODE]);
@@ -233,6 +243,9 @@ export function evaluateSustainability(
 export function resolveSustainability(
   itinerary: ItineraryGenerateResponse | null | undefined,
 ): SustainabilitySummary {
+  if (itinerary?.legs?.length) {
+    return evaluateSustainability(itinerary.legs);
+  }
   if (itinerary?.sustainability && itinerary.sustainability.score != null) {
     return itinerary.sustainability;
   }
@@ -352,14 +365,9 @@ export function aggregatePeriodModeBreakdown(
 
   for (const itinerary of itineraries) {
     if (!itinerary) continue;
-    let summary = resolveSustainability(itinerary);
-    if (
-      (!summary.breakdown_by_mode || summary.breakdown_by_mode.length === 0) &&
-      (!summary.breakdown_by_leg || summary.breakdown_by_leg.length === 0) &&
-      itinerary.legs?.length
-    ) {
-      summary = evaluateSustainability(itinerary.legs);
-    }
+    const summary = itinerary.legs?.length
+      ? evaluateSustainability(itinerary.legs)
+      : resolveSustainability(itinerary);
     if (!summary.has_transport_data) continue;
 
     const present = new Set<MonthlyModeBucket>();
@@ -377,8 +385,11 @@ export function aggregatePeriodModeBreakdown(
     for (const row of rows) {
       const bucket = toMonthlyBucket(row.mode);
       present.add(bucket);
-      const carbonKg = Math.max(0, Number(row.carbon_kg) || 0);
       const distanceKm = Math.max(0, Number(row.distance_km) || 0);
+      const carbonKg =
+        bucket === "walking"
+          ? 0
+          : Math.max(0, Number(row.carbon_kg) || 0);
       carbon.set(bucket, (carbon.get(bucket) || 0) + carbonKg);
       distance.set(bucket, (distance.get(bucket) || 0) + distanceKm);
       // Savings vs car baseline for the same distance (driving → 0)

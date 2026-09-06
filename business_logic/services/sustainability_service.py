@@ -11,6 +11,7 @@ from typing import Any
 from services.emission_factors import (
     baseline_factor,
     emission_factor,
+    is_zero_tailpipe,
     normalize_mode,
 )
 
@@ -97,11 +98,12 @@ class SustainabilityService:
         for index, leg in enumerate(rows, start=1):
             raw_mode, distance, option_carbon = _selected_metrics(leg)
             mode = normalize_mode(raw_mode)
-            carbon = (
-                _round3(option_carbon)
-                if option_carbon is not None
-                else _round3(distance * emission_factor(raw_mode))
-            )
+            if is_zero_tailpipe(mode):
+                carbon = 0.0
+            elif option_carbon is not None:
+                carbon = _round3(option_carbon)
+            else:
+                carbon = _round3(distance * emission_factor(raw_mode))
             baseline_leg = _round3(distance * baseline_factor())
 
             total_footprint += carbon
@@ -188,3 +190,4 @@ class SustainabilityService:
         if isinstance(existing, dict) and existing.get("score") is not None:
             return existing
         return self.evaluate_legs(payload.get("legs") or [])
+        
